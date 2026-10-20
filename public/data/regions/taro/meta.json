@@ -1,0 +1,22 @@
+{
+  "name": "taro",
+  "label": "田老地区（旧田老防潮堤）",
+  "label_en": "Taro District (Historic Seawall)",
+  "nx": 800,
+  "ny": 800,
+  "res": 5,
+  "crs": "EPSG:6678",
+  "originE": 95600,
+  "originN": -26600,
+  "center": {
+    "lat": 39.7368,
+    "lon": 141.972
+  },
+  "groundMin": -25,
+  "groundMax": 314.7438920632068,
+  "aerial": {
+    "width": 800,
+    "height": 800
+  },
+  "built": "2026-10-19T10:54:15.945Z"
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "MiyakoTsunami",
+  "version": "1.0.0",
+  "identifier": "com.miyakotsunami.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5174",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Miyako Taro Tsunami — 宮古・田老津波 3Dシミュレーター",
+        "width": 1480,
+        "height": 920,
+        "minWidth": 1000,
+        "minHeight": 640,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "app", "nsis"],
+    "category": "Education",
+    "shortDescription": "Miyako Taro Tsunami 3D Simulator",
+    "copyright": "Data: GSI Japan, MLIT, PLATEAU, © OpenStreetMap contributors",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

@@ -1,0 +1,34 @@
+[
+  {
+    "name": "taro",
+    "label": "田老地区（旧田老防潮堤）",
+    "label_en": "Taro District (Historic Seawall)",
+    "nx": 800,
+    "ny": 800,
+    "res": 5,
+    "originE": 95600,
+    "originN": -26600,
+    "center": {
+      "lat": 39.7368,
+      "lon": 141.972
+    },
+    "groundMin": -25,
+    "groundMax": 314.7438920632068
+  },
+  {
+    "name": "miyako_port",
+    "label": "宮古港・鍬ヶ崎・閉伊川河口",
+    "label_en": "Miyako Port & Hei River Estuary",
+    "nx": 800,
+    "ny": 800,
+    "res": 5,
+    "originE": 94360,
+    "originN": -37255,
+    "center": {
+      "lat": 39.641,
+      "lon": 141.956
+    },
+    "groundMin": -25,
+    "groundMax": 198.90016533468219
+  }
+]

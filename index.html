@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Miyako Tsunami 3D Simulator — 宮古・田老津波 3Dシミュレーター (PLATEAU × Three.js)</title>
+    <meta name="description" content="岩手県宮古市・田老地区の津波シミュレーター。東日本大震災の津波、新旧田老防潮堤（万里の長城）の越流・治水効果をPLATEAU 3D都市モデルとThree.jsでリアルタイムに観察・解析。" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌊</text></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <!-- WebGL Canvas -->
+      <canvas id="gl-canvas"></canvas>
+
+      <!-- 3D Overlay Labels Container -->
+      <div id="label-container"></div>
+
+      <!-- Top Header -->
+      <header class="app-header glass-panel">
+        <div class="brand-icon">🌊</div>
+        <div class="title-group">
+          <h1 id="app-title" data-i18n="appTitle">Miyako Tsunami 3D Simulator</h1>
+          <p id="app-subtitle" data-i18n="appSubtitle">宮古・田老津波 3Dシミュレーター (PLATEAU × Three.js)</p>
+        </div>
+        <button id="btn-lang" class="lang-btn" aria-label="Toggle language">EN / 日本語</button>
+      </header>
+
+      <!-- Left Sidebar: Controls -->
+      <aside id="control-sidebar" class="control-sidebar glass-panel" aria-label="Simulation Controls">
+        <div class="panel-head">
+          <span class="section-title" data-i18n="controlPanel">操作パネル</span>
+          <button id="btn-toggle-sidebar" class="collapse-btn" aria-expanded="true" aria-controls="control-sidebar">◀</button>
+        </div>
+        <!-- 1. Region Selection -->
+        <section class="panel-section">
+          <label class="section-title" for="select-region">
+            <span>📍</span> <span data-i18n="region">地域選択</span>
+          </label>
+          <select id="select-region">
+            <option value="taro" selected data-i18n="regions.taro">田老地区（旧田老防潮堤）</option>
+            <option value="miyako_port" data-i18n="regions.miyako_port">宮古港・鍬ヶ崎・閉伊川河口</option>
+          </select>
+        </section>
+
+        <!-- 2. Tsunami Scenario -->
+        <section class="panel-section">
+          <label class="section-title" for="select-scenario">
+            <span>⚡</span> <span data-i18n="scenario">津波シナリオ</span>
+          </label>
+          <select id="select-scenario">
+            <option value="great_east_japan" selected data-i18n="scenarios.great_east_japan">東日本大震災 (2011年再現)</option>
+            <option value="l2_maximum" data-i18n="scenarios.l2_maximum">想定最大規模 L2津波 (県公表 - 19.5m)</option>
+            <option value="l1_design" data-i18n="scenarios.l1_design">施設計画規模 L1津波 (設計波 - 14.0m)</option>
+            <option value="chile_1960" data-i18n="scenarios.chile_1960">チリ地震津波 (1960年再現 - 5.5m)</option>
+            <option value="custom" data-i18n="scenarios.custom">カスタム津波パラメータ</option>
+          </select>
+          <p id="scenario-desc" style="font-size: 11px; color: var(--text-dim); line-height: 1.4;"></p>
+        </section>
+
+        <!-- 3. Seawall Controls -->
+        <section class="panel-section">
+          <label class="section-title" for="select-seawall">
+            <span>🛡️</span> <span data-i18n="seawall">防波堤・防潮堤設定</span>
+          </label>
+          <select id="select-seawall">
+            <option value="historic_10" selected data-i18n="seawallPresets.historic_10">旧田老防潮堤 第一・現存部 (海抜10m)</option>
+            <option value="none" data-i18n="seawallPresets.none">防潮堤なし (自然海岸)</option>
+            <option value="custom" data-i18n="seawallPresets.custom">カスタム高さ</option>
+          </select>
+
+          <!-- Seawall Height Slider -->
+          <div class="slider-group">
+            <div class="slider-header">
+              <span data-i18n="seawallHeight">防潮堤の天端標高</span>
+              <span id="val-seawall-height" class="slider-val">10.0m</span>
+            </div>
+            <input id="input-seawall-height" type="range" min="0" max="22" step="0.5" value="10.0" />
+          </div>
+        </section>
+
+        <!-- 4. Wave Parameters -->
+        <section class="panel-section">
+          <div class="slider-group">
+            <div class="slider-header">
+              <span data-i18n="tsunamiHeight">津波の波高 (沖合)</span>
+              <span id="val-wave-height" class="slider-val">8.0m</span>
+            </div>
+            <input id="input-wave-height" type="range" min="3" max="25" step="0.5" value="8" />
+          </div>
+          <div class="slider-group">
+            <div class="slider-header">
+              <span data-i18n="tsunamiDirection">津波の来襲方向</span>
+              <span id="val-wave-dir" class="slider-val">110° 東南東</span>
+            </div>
+            <input id="input-wave-dir" type="range" min="30" max="170" step="5" value="110" />
+          </div>
+        </section>
+
+        <!-- 5. Simulation Playback Buttons -->
+        <section class="panel-section">
+          <div class="button-row">
+            <button id="btn-play" class="btn btn-primary" data-i18n="play">▶ 再生</button>
+            <button id="btn-reset" class="btn btn-danger" data-i18n="reset">↺ リセット</button>
+          </div>
+          <div class="button-row">
+            <button id="btn-csv" class="btn btn-success" data-i18n="exportCsv">⬇ CSV出力</button>
+          </div>
+        </section>
+
+        <!-- 5b. Batch run -->
+        <section class="panel-section">
+          <label class="section-title"><span data-i18n="batchTitle">📦 シナリオを一括計算して保存</span></label>
+          <div class="form-grid">
+            <label><span data-i18n="batchDuration">計算する長さ (分)</span>
+              <input id="batch-minutes" type="number" min="5" max="120" step="5" value="30" />
+            </label>
+          </div>
+          <div class="wave-preview-box">
+            <div class="hint" data-i18n="wavePreview">沖合の波形（境界で与える水位）</div>
+            <canvas id="wave-preview" class="wave-preview"></canvas>
+            <div id="wave-crests" class="hint"></div>
+          </div>
+          <div class="button-row">
+            <button id="btn-batch-add" class="btn btn-nowrap" data-i18n="batchAdd">＋ 観察地点を追加</button>
+            <button id="btn-batch-clear" class="btn btn-narrow" data-i18n="kfClear">クリア</button>
+            <span id="batch-count" class="kf-count">0 地点</span>
+          </div>
+          <label class="checkbox-label">
+            <input id="chk-batch-survey" type="checkbox" checked />
+            <span data-i18n="batchSurvey">2011年の実測地点も含める</span>
+          </label>
+          <p class="hint" data-i18n="batchHint">0分から指定した長さまで計算し、全体の時系列・地点の時系列（緯度経度付き）・地点のまとめ・最大浸水深と到達時刻の格子（GIS用）をZIPで保存します。</p>
+          <button id="btn-batch-run" class="btn btn-primary" data-i18n="batchRun">▶ 一括計算してZIP保存</button>
+        </section>
+
+        <!-- 6. Camera Views -->
+        <section class="panel-section">
+          <label class="section-title"><span data-i18n="viewPresets">カメラ視点</span></label>
+          <div class="button-row">
+            <button class="btn" data-view="viewCoast" data-i18n="viewCoast">海岸・防潮堤</button>
+            <button class="btn" data-view="viewTown" data-i18n="viewTown">田老市街地</button>
+          </div>
+          <div class="button-row">
+            <button class="btn" data-view="viewBird" data-i18n="viewBird">全体俯瞰</button>
+            <button class="btn" data-view="viewBackdrop" data-i18n="viewBackdrop">🗾 広域リアス</button>
+          </div>
+          <button id="btn-lock-view" class="btn" data-i18n="lockView">🔓 視点を固定 (L)</button>
+          <p class="hint" data-i18n="controlsHint">クリック: 地点観察 / ダブルクリック: 回転の中心に移動 / 左ドラッグ: 回転 / 右ドラッグ: 移動 / ホイール: ズーム / WASD・QE: 移動・上下 (Shiftで高速)</p>
+        </section>
+
+        <!-- 7. Video -->
+        <section class="panel-section">
+          <label class="section-title"><span data-i18n="videoTitle">🎥 動画の作成</span></label>
+          <div class="form-grid">
+            <label><span data-i18n="recCamera">カメラ</span>
+              <select id="rec-cam-mode">
+                <option value="fixed" data-i18n="camFixed">現在の視点で固定</option>
+                <option value="keyframes" data-i18n="camKeyframes">キーフレームを補間</option>
+                <option value="orbit" data-i18n="camOrbit">旋回</option>
+              </select>
+            </label>
+            <label id="rec-orbit-row"><span data-i18n="recOrbitDeg">旋回角度 (°)</span>
+              <input id="rec-orbit-deg" type="number" value="90" step="15" />
+            </label>
+            <label><span data-i18n="recDuration">動画の長さ (秒)</span>
+              <input id="rec-duration" type="number" value="20" min="2" max="120" step="1" />
+            </label>
+            <label><span data-i18n="recSimMinutes">津波の経過 (分)</span>
+              <input id="rec-sim-minutes" type="number" value="15" min="1" max="60" step="1" />
+            </label>
+            <label><span data-i18n="recResolution">解像度</span>
+              <select id="rec-resolution">
+                <option value="1280x720" selected>1280×720</option>
+                <option value="1920x1080">1920×1080</option>
+              </select>
+            </label>
+            <label>fps
+              <select id="rec-fps"><option>24</option><option selected>30</option></select>
+            </label>
+          </div>
+          <div id="rec-kf-row" class="button-row">
+            <button id="btn-kf-add" class="btn btn-nowrap" data-i18n="kfAdd">＋ 現在の視点を追加</button>
+            <button id="btn-kf-clear" class="btn btn-narrow" data-i18n="kfClear">クリア</button>
+            <span id="kf-count" class="kf-count">0 点</span>
+          </div>
+          <p class="hint" data-i18n="recHint">現在の計算状態から指定した分数だけ津波を進めながら録画します。</p>
+          <p id="rec-preview-hint" class="hint" data-i18n="previewHint">「下見」は録画と同じカメラの動きを6秒で再生します（録画・計算はしません）。</p>
+          <div class="button-row">
+            <button id="btn-kf-preview" class="btn" data-i18n="kfPreview">▶ 動きを下見</button>
+            <button id="btn-record" class="btn btn-primary" data-i18n="recordVideo">● 録画して保存</button>
+          </div>
+        </section>
+
+        <!-- 8. Comparison: hazard map / 2011 record -->
+        <section class="panel-section">
+          <label class="section-title"><span data-i18n="compareTitle">🗺 ハザードマップ・2011年の記録</span></label>
+          <label class="checkbox-label">
+            <input id="chk-hazardmap" type="checkbox" />
+            <span data-i18n="showHazardMap">ハザードマップ（岩手県の津波浸水想定・最大クラス）</span>
+          </label>
+          <label class="checkbox-label">
+            <input id="chk-inund5" type="checkbox" />
+            <span data-i18n="showInund5">2011年の実績浸水深（5mメッシュ）</span>
+          </label>
+          <label class="checkbox-label">
+            <input id="chk-inund2011" type="checkbox" />
+            <span data-i18n="showInund2011">2011年の実績浸水深（100mメッシュ）</span>
+          </label>
+          <label class="checkbox-label">
+            <input id="chk-maxdepth" type="checkbox" />
+            <span data-i18n="showMaxDepth">計算の最大浸水深（ハザードマップと同じ色分け）</span>
+          </label>
+          <div id="depth-legend" class="depth-legend" hidden></div>
+          <label class="checkbox-label">
+            <input id="chk-match" type="checkbox" />
+            <span data-i18n="showMatch">計算と2011年実績の一致・不一致（5m）</span>
+          </label>
+          <ul id="match-legend" class="survey-legend" hidden>
+            <li><span class="dot" style="background:#66bb6a"></span><span data-i18n="mHit">両方浸水</span></li>
+            <li><span class="dot" style="background:#29b6f6"></span><span data-i18n="mMiss">実績のみ（見逃し）</span></li>
+            <li><span class="dot" style="background:#ff7043"></span><span data-i18n="mFalse">計算のみ</span></li>
+          </ul>
+          <label class="checkbox-label">
+            <input id="chk-survey" type="checkbox" />
+            <span data-i18n="showSurvey">2011年の実測値（津波痕跡調査）</span>
+          </label>
+          <div class="form-grid">
+            <label><span data-i18n="aerialPhoto">航空写真</span>
+              <select id="sel-aerial">
+                <option value="now" data-i18n="aerialNow">現在</option>
+                <option value="y2011" data-i18n="aerial2011">2011年3月 震災直後</option>
+              </select>
+            </label>
+          </div>
+          <p class="hint" data-i18n="compareHint">震災直後の写真では、がれきの広がりで実際に浸水した範囲が分かります。</p>
+        </section>
+
+        <!-- 7. Display Options -->
+        <section class="panel-section">
+          <label class="section-title"><span data-i18n="displayOptions">表示設定</span></label>
+          <label class="checkbox-label">
+            <input id="chk-hazard" type="checkbox" />
+            <span data-i18n="showHazardRanks">現在の水深を色分け</span>
+          </label>
+          <label class="checkbox-label">
+            <input id="chk-buildings" type="checkbox" checked />
+            <span data-i18n="showBuildings">PLATEAU 3D建物</span>
+          </label>
+          <label class="checkbox-label">
+            <input id="chk-bldg-focus" type="checkbox" checked />
+            <span data-i18n="bldgFocus">観察地点の周囲だけ建物を表示</span>
+            <select id="sel-bldg-radius" class="inline-select">
+              <option value="1000">1km</option>
+              <option value="2000" selected>2km</option>
+              <option value="3000">3km</option>
+            </select>
+          </label>
+          <label class="checkbox-label">
+            <input id="chk-labels" type="checkbox" checked />
+            <span data-i18n="showLabels">地名・施設ラベル</span>
+          </label>
+          <label class="checkbox-label">
+            <input id="chk-backdrop" type="checkbox" checked />
+            <span data-i18n="showBackdrop">周辺広域地形 (miyako.tif)</span>
+          </label>
+        </section>
+      </aside>
+
+      <!-- Right-side Stats HUD -->
+      <aside class="stats-hud glass-panel" aria-label="Impact and Defense Statistics">
+        <h2 class="section-title" data-i18n="stats">被害・治水メーター</h2>
+        <div id="overflow-banner" class="overflow-banner" data-i18n="overflowNone">越流なし（防御中）</div>
+        <div class="stat-grid">
+          <div class="stat-card">
+            <div class="stat-label" data-i18n="elapsedTime">経過時間</div>
+            <div id="stat-time" class="stat-value">0.0 分</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label" data-i18n="offshoreHeight">沖合の水位</div>
+            <div id="stat-wave-h" class="stat-value">0.0 m</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label" data-i18n="maxRunup">最大遡上高</div>
+            <div id="stat-runup" class="stat-value">0.0 m</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label" data-i18n="inundatedArea">浸水面積</div>
+            <div id="stat-area" class="stat-value">0.0 ha</div>
+          </div>
+          <div class="stat-card" style="grid-column: span 2;">
+            <div class="stat-label" data-i18n="inundatedBuildings">浸水建物 (床上0.5m以上)</div>
+            <div id="stat-buildings" class="stat-value" style="color: #ff80ab;">0 棟</div>
+          </div>
+        </div>
+
+        <!-- Point Inspector Info -->
+        <div style="border-top: 1px solid var(--bg-panel-border); padding-top: 8px;">
+          <h3 class="section-title" style="margin-bottom: 6px;" data-i18n="pointObservation">地点観察</h3>
+          <div style="font-size: 11px; display: flex; flex-direction: column; gap: 4px;">
+            <div style="display: flex; justify-content: space-between;">
+              <span data-i18n="elevation">地盤標高:</span>
+              <span id="val-point-elev" style="color: #ffffff; font-weight: 600;">--</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span data-i18n="waterDepth">現在水深:</span>
+              <span id="val-point-depth" style="color: var(--accent-cyan); font-weight: 600;">--</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span data-i18n="maxDepth">最大浸水深:</span>
+              <span id="val-point-max-depth" style="color: #ff5252; font-weight: 600;">--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2011 actual inundation mesh comparison -->
+        <div id="inund-panel" class="survey-panel" hidden>
+          <h3 class="section-title" data-i18n="inundTitle">2011年の浸水メッシュとの比較</h3>
+          <div id="inund-summary" class="survey-summary"></div>
+          <p class="hint" data-i18n="inundHint">出典: 復興支援調査アーカイブ 宮古市-浸水メッシュ(5m・100m)（国土交通省都市局）。正確性は保証されない。CSI = 両方浸水 ÷ (両方 + 見逃し + 計算のみ)。</p>
+        </div>
+
+        <!-- 2011 survey comparison -->
+        <div id="survey-panel" class="survey-panel" hidden>
+          <h3 class="section-title" data-i18n="surveyTitle">2011年の実測との比較</h3>
+          <div id="survey-summary" class="survey-summary"></div>
+          <ul class="survey-legend">
+            <li><span class="dot" style="background:#66bb6a"></span><span data-i18n="svOk">差 ±2m 以内</span></li>
+            <li><span class="dot" style="background:#ff7043"></span><span data-i18n="svHigh">計算が2m超 高い</span></li>
+            <li><span class="dot" style="background:#29b6f6"></span><span data-i18n="svLow">計算が2m超 低い</span></li>
+            <li><span class="dot" style="background:#9e9e9e"></span><span data-i18n="svMiss">計算では水が届かず</span></li>
+          </ul>
+          <p class="hint" data-i18n="surveyHint">線の先端 = 2011年に実測された水位（T.P.）。出典: 東北地方太平洋沖地震津波合同調査グループ</p>
+        </div>
+      </aside>
+
+      <!-- Bottom HUD: Point Depth Hydrograph -->
+      <footer id="bottom-hud" class="bottom-hud">
+        <div class="bottom-box glass-panel">
+          <div class="panel-head">
+            <h3 data-i18n="hydrograph">地点の水深の時間変化</h3>
+            <button id="btn-point-csv" class="btn btn-success mini-btn" data-i18n="pointCsv">⬇ CSV</button>
+            <button id="btn-toggle-chart" class="collapse-btn" aria-expanded="true" aria-controls="bottom-hud">▾</button>
+          </div>
+          <div class="canvas-container">
+            <canvas id="depth-chart-canvas"></canvas>
+          </div>
+        </div>
+      </footer>
+
+      <!-- Video Recording Modal -->
+      <div id="record-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content glass-panel">
+          <h2 style="font-size: 16px; color: #ffffff;" data-i18n="recordVideo">🎥 MP4録画</h2>
+          <div class="progress-bar">
+            <div id="record-progress-fill" class="progress-fill"></div>
+          </div>
+          <p id="record-status-text" style="font-size: 12px; color: var(--accent-cyan);" data-i18n="recording">録画中...</p>
+          <button id="btn-rec-cancel" class="btn btn-danger" data-i18n="recCancel">中止</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Module Entry -->
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

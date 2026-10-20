@@ -1,0 +1,21 @@
+{
+  "name": "outer",
+  "label": "宮古市・三陸リアス広域背景 (miyako.tif)",
+  "label_en": "Miyako & Sanriku Coast Backdrop (miyako.tif)",
+  "nx": 503,
+  "ny": 418,
+  "res": 60,
+  "widthM": 30180,
+  "heightM": 25080,
+  "crs": "EPSG:6678",
+  "originE": 79560,
+  "originN": -28740,
+  "groundMin": -20,
+  "groundMax": 1220.099453246394,
+  "aerial": {
+    "width": 1509,
+    "height": 1254
+  },
+  "demSource": "miyako.tif (1 arc-second DEM)",
+  "built": "2026-10-19T10:55:09.518Z"
+}

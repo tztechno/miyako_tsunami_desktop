@@ -1,0 +1,92 @@
+[
+  {
+    "id": "taro_station",
+    "name": "田老駅（三陸鉄道）",
+    "name_en": "Taro Station",
+    "lat": 39.7368,
+    "lon": 141.9686,
+    "category": "station",
+    "region": "taro"
+  },
+  {
+    "id": "sanno_rocks",
+    "name": "三王岩（名勝）",
+    "name_en": "Sanno Rocks",
+    "lat": 39.7460,
+    "lon": 141.9810,
+    "category": "spot",
+    "region": "taro"
+  },
+  {
+    "id": "taro_historic_seawall",
+    "name": "旧田老防潮堤「万里の長城」(10m)",
+    "name_en": "Historic Taro Seawall (10m)",
+    "lat": 39.7373,
+    "lon": 141.9726,
+    "category": "seawall",
+    "region": "taro"
+  },
+  {
+    "id": "taro_sluice",
+    "name": "田老川河口水門",
+    "name_en": "Taro River Sluice Gate",
+    "lat": 39.7342,
+    "lon": 141.9752,
+    "category": "gate",
+    "region": "taro"
+  },
+  {
+    "id": "taro_river",
+    "name": "田老川",
+    "name_en": "Taro River",
+    "lat": 39.7340,
+    "lon": 141.9680,
+    "category": "river",
+    "region": "taro"
+  },
+  {
+    "id": "miyako_station",
+    "name": "宮古駅",
+    "name_en": "Miyako Station",
+    "lat": 39.6414,
+    "lon": 141.9472,
+    "category": "station",
+    "region": "miyako_port"
+  },
+  {
+    "id": "kuwagasaki",
+    "name": "鍬ヶ崎（くわがさき）",
+    "name_en": "Kuwagasaki District",
+    "lat": 39.6450,
+    "lon": 141.9620,
+    "category": "spot",
+    "region": "miyako_port"
+  },
+  {
+    "id": "hei_river",
+    "name": "閉伊川（へいがわ）",
+    "name_en": "Hei River",
+    "lat": 39.6380,
+    "lon": 141.9480,
+    "category": "river",
+    "region": "miyako_port"
+  },
+  {
+    "id": "dezaki_wharf",
+    "name": "出崎埠頭（宮古港）",
+    "name_en": "Dezaki Wharf",
+    "lat": 39.6375,
+    "lon": 141.9540,
+    "category": "port",
+    "region": "miyako_port"
+  },
+  {
+    "id": "jodogahama",
+    "name": "浄土ヶ浜（名勝）",
+    "name_en": "Jodogahama Beach",
+    "lat": 39.6540,
+    "lon": 141.9800,
+    "category": "spot",
+    "region": "outer"
+  }
+]

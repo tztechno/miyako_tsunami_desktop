@@ -1,0 +1,22 @@
+{
+  "name": "miyako_port",
+  "label": "宮古港・鍬ヶ崎・閉伊川河口",
+  "label_en": "Miyako Port & Hei River Estuary",
+  "nx": 800,
+  "ny": 800,
+  "res": 5,
+  "crs": "EPSG:6678",
+  "originE": 94360,
+  "originN": -37255,
+  "center": {
+    "lat": 39.641,
+    "lon": 141.956
+  },
+  "groundMin": -25,
+  "groundMax": 198.90016533468219,
+  "aerial": {
+    "width": 800,
+    "height": 800
+  },
+  "built": "2026-10-19T10:55:03.513Z"
+}
