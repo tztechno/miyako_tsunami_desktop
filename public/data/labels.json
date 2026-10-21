@@ -1,5 +1,32 @@
 [
   {
+    "id": "taro_wave_source",
+    "name": "🚨 津波発生境界（東端 沖合約6km）",
+    "name_en": "🚨 Tsunami Wave Source Zone (~6km Offshore)",
+    "lat": 39.7368,
+    "lon": 142.0400,
+    "category": "warning",
+    "region": "taro"
+  },
+  {
+    "id": "taro_offshore_buoy",
+    "name": "📍 沖合波源観測点 (東端 5.9km)",
+    "name_en": "📍 Offshore Wave Station (5.9km)",
+    "lat": 39.7368,
+    "lon": 142.0370,
+    "category": "station",
+    "region": "taro"
+  },
+  {
+    "id": "taro_coastal_buoy",
+    "name": "📍 田老湾 沿岸観測点 (防潮堤前)",
+    "name_en": "📍 Taro Bay Coastal Station (Seawall Front)",
+    "lat": 39.7348,
+    "lon": 141.9790,
+    "category": "station",
+    "region": "taro"
+  },
+  {
     "id": "taro_station",
     "name": "田老駅（三陸鉄道）",
     "name_en": "Taro Station",
@@ -43,6 +70,33 @@
     "lon": 141.9680,
     "category": "river",
     "region": "taro"
+  },
+  {
+    "id": "miyako_wave_source",
+    "name": "🚨 津波発生境界（東端 宮古湾外洋約5km）",
+    "name_en": "🚨 Wave Source Zone (Miyako Outer ~5km)",
+    "lat": 39.6410,
+    "lon": 142.0400,
+    "category": "warning",
+    "region": "miyako_port"
+  },
+  {
+    "id": "miyako_offshore_buoy",
+    "name": "📍 沖合波源観測点 (東端 4.8km)",
+    "name_en": "📍 Offshore Wave Station (4.8km)",
+    "lat": 39.6410,
+    "lon": 142.0360,
+    "category": "station",
+    "region": "miyako_port"
+  },
+  {
+    "id": "miyako_coastal_buoy",
+    "name": "📍 宮古港 沿岸観測点 (出崎埠頭沖)",
+    "name_en": "📍 Miyako Port Coastal Station",
+    "lat": 39.6400,
+    "lon": 141.9600,
+    "category": "station",
+    "region": "miyako_port"
   },
   {
     "id": "miyako_station",

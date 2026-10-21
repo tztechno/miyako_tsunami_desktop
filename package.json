@@ -1,6 +1,6 @@
 {
   "name": "miyako-tsunami-desktop",
-  "version": "1.0.0",
+  "version": "1.10.0",
   "private": true,
   "type": "module",
   "description": "Miyako Taro Tsunami 3D Simulator (Tauri Desktop App)",
