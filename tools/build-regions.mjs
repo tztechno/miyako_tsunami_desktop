@@ -1,13 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { toPlane } from './lib/proj.mjs';
+import { toPlane, toLonLat } from './lib/proj.mjs';
 import { buildDem } from './lib/dem.mjs';
+import { loadBathymetry } from './lib/bathy.mjs';
 import { buildAerial } from './lib/aerial.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(here, '..');
 const cacheDir = path.join(appRoot, '.cache', 'gsi');
+// Seabed: japan.tif (15 arc-second topography + bathymetry) in the project root
+const bathyTif = path.resolve(appRoot, '..', 'japan.tif');
 
 const REGIONS = [
   {
@@ -22,7 +25,6 @@ const REGIONS = [
     heightM: 4000, // 4km North-South
     res: 5,
     zoomAerial: 15,
-    seaFloorDepth: -35,
   },
   {
     name: 'miyako_port',
@@ -36,13 +38,13 @@ const REGIONS = [
     heightM: 4000,
     res: 5,
     zoomAerial: 15,
-    seaFloorDepth: -35,
   },
 ];
 
 async function main() {
-  const targetName = process.argv[2];
+  const targetName = process.argv.slice(2).find((a) => !a.startsWith('--'));
   const force = process.argv.includes('--force');
+  const demOnly = process.argv.includes('--dem'); // rebuild ground.f32 only (keeps aerial)
   for (const reg of REGIONS) {
     if (targetName && reg.name !== targetName && !force) continue;
     console.log(`\n=== Building region: ${reg.name} (${reg.label}) ===`);
@@ -65,7 +67,20 @@ async function main() {
 
     let minH = 0, maxH = 50;
     // 1. DEM
-    if (force || !fs.existsSync(groundFile)) {
+    if (force || demOnly || !fs.existsSync(groundFile)) {
+      const corners = [
+        toLonLat(originE, originN),
+        toLonLat(originE + widthM, originN),
+        toLonLat(originE, originN - heightM),
+        toLonLat(originE + widthM, originN - heightM),
+      ];
+      const bathy = await loadBathymetry(bathyTif, {
+        lonMin: Math.min(...corners.map((c) => c[0])),
+        lonMax: Math.max(...corners.map((c) => c[0])),
+        latMin: Math.min(...corners.map((c) => c[1])),
+        latMax: Math.max(...corners.map((c) => c[1])),
+      });
+      console.log(`  Bathymetry: japan.tif window ${bathy.window.join(',')} (${bathy.seaPixels} sea pixels)`);
       const resDem = await buildDem({
         cacheDir,
         originE,
@@ -74,7 +89,7 @@ async function main() {
         ny,
         res: reg.res,
         zoom: 15,
-        seaFloorDepth: reg.seaFloorDepth,
+        bathy,
       });
       minH = resDem.minH;
       maxH = resDem.maxH;
@@ -88,7 +103,9 @@ async function main() {
     }
 
     // 2. Aerial
-    let aerialImg = { width: 1024, height: 1024 };
+    const metaFile = path.join(outDir, 'meta.json');
+    const prevMeta = fs.existsSync(metaFile) ? JSON.parse(fs.readFileSync(metaFile, 'utf8')) : null;
+    let aerialImg = prevMeta?.aerial || { width: 1024, height: 1024 };
     if (force || !fs.existsSync(aerialFile)) {
       aerialImg = await buildAerial({
         outFile: aerialFile,
@@ -120,9 +137,10 @@ async function main() {
       groundMin: minH,
       groundMax: maxH,
       aerial: aerialImg,
+      demSource: 'GSI DEM5A/DEM10B (land) + japan.tif 15 arc-second bathymetry (sea)',
       built: new Date().toISOString(),
     };
-    fs.writeFileSync(path.join(outDir, 'meta.json'), JSON.stringify(meta, null, 2));
+    fs.writeFileSync(metaFile, JSON.stringify(meta, null, 2));
   }
 
   // Build index

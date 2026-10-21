@@ -37,17 +37,17 @@ export const TSUNAMI_SCENARIOS = {
     id: 'great_east_japan',
     name: '東日本大震災 (2011年実測再現)',
     name_en: '2011 Tohoku Earthquake Tsunami (Recorded)',
-    // Offshore boundary amplitude (sea depth ~25 m), tuned to the 59 TTJT survey points in Taro
-    // (tools/calibrate-2011.mjs): 8.0 m gives 25 points within ±2 m, RMSE 5.3 m.
-    waveHeight: 8.0, // m offshore
+    // Offshore boundary amplitude (japan.tif seabed, Taro east edge ~110 m deep), tuned to the 59 TTJT
+    // survey points in Taro (tools/calibrate-2011.mjs): 6.5 m gives 20 points within ±2 m, RMSE 3.0 m.
+    waveHeight: 6.5, // m offshore
     periodSec: 720,  // 12 min
     directionDeg: 110, // from East-Southeast
     directionDegByRegion: { taro: 110, miyako_port: 50 },
     durationMin: 30,
     hasPreDrawdown: true,
     eqTimeOffsetSec: 1800, // ~30 min after 14:46 earthquake origin
-    description: '2011年3月11日の津波の再現。沖合（水深約25m）の波高8.0mは、田老の痕跡実測59地点に最も合うよう調整した値（海岸に近づくと浅水化で高くなる）。旧田老防潮堤（10m）を越流。※位置が特定できない海側の旧防潮堤（震災で破壊）は未収録。',
-    description_en: 'Reproduction of the 2011 tsunami. The 8.0m offshore height (sea depth ~25m) is tuned to best match the 59 surveyed points in Taro (it grows higher towards the coast by shoaling). Overtops the 10m historic dyke. Note: the seaward historic wall (destroyed in 2011) is not modeled because its exact position is unknown.',
+    description: '2011年3月11日の津波の再現。沖合（水深約110m）の波高6.5mは、田老の痕跡実測59地点に最も合うよう調整した値（海岸に近づくと浅水化で高くなる）。旧田老防潮堤（10m）を越流。※位置が特定できない海側の旧防潮堤（震災で破壊）は未収録。',
+    description_en: 'Reproduction of the 2011 tsunami. The 6.5m offshore height (sea depth ~110m) is tuned to best match the 59 surveyed points in Taro (it grows higher towards the coast by shoaling). Overtops the 10m historic dyke. Note: the seaward historic wall (destroyed in 2011) is not modeled because its exact position is unknown.',
     recommendedSeawall: 'historic_10',
   },
   l2_maximum: {

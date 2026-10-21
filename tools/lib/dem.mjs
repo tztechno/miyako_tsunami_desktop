@@ -49,9 +49,10 @@ async function fetchDemTile(cacheDir, z, x, y) {
 
 /**
  * Build elevation grid covering [originE, originE + nx*res] x [originN - ny*res, originN]
- * Sea cells (NaN from GSI) are assigned realistic coastal seabed bathymetry (negative elevation).
+ * Sea cells (NaN from GSI) take their seabed from `bathy.depthAt(lon, lat)` (japan.tif), tapered to
+ * -1 m at the 5 m coastline over `coastTaperM` because the bathymetry pixels are much coarser.
  */
-export async function buildDem({ cacheDir, originE, originN, nx, ny, res, zoom = 15, seaFloorDepth = -15 }) {
+export async function buildDem({ cacheDir, originE, originN, nx, ny, res, zoom = 15, bathy, coastTaperM = 400 }) {
   fs.mkdirSync(cacheDir, { recursive: true });
   const W_M = nx * res, H_M = ny * res;
   const corners = [
@@ -121,8 +122,7 @@ export async function buildDem({ cacheDir, originE, originN, nx, ny, res, zoom =
     }
   }
 
-  // Seabed bathymetry: Compute distance to nearest land for sea cells to produce a smooth coastal bathymetry slope
-  // (e.g. from 0m at coast deepening to seaFloorDepth m offshore)
+  // Distance from each sea cell to the nearest land cell, for the coastal taper of the seabed
   const dist = new Float32Array(nx * ny);
   dist.fill(1e9);
   // Multi-pass distance transform approximation
@@ -157,9 +157,10 @@ export async function buildDem({ cacheDir, originE, originN, nx, ny, res, zoom =
 
   for (let k = 0; k < dem.length; k++) {
     if (isSea[k]) {
-      const distM = dist[k] * res;
-      // Gradual slope down to seaFloorDepth (e.g. -15m to -35m)
-      const depth = Math.max(seaFloorDepth, -1.0 - (distM / 300) * Math.abs(seaFloorDepth));
+      const [lo, la] = toLonLat(originE + ((k % nx) + 0.5) * res, originN - (Math.floor(k / nx) + 0.5) * res);
+      const b = Math.min(-1, bathy.depthAt(lo, la));
+      const t = Math.min(1, (dist[k] * res) / coastTaperM);
+      const depth = -1 + (b + 1) * t * t * (3 - 2 * t);
       dem[k] = depth;
       if (depth < minH) minH = depth;
     }
