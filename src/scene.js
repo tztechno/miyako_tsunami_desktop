@@ -77,6 +77,7 @@ export class TsunamiScene {
     this.actual5 = null; // Uint16 cm per water-grid vertex (65535 = no data)
     this.overlays = {}; // key -> mesh draped on the terrain (hazard map, 2011 inundation)
     this.surveyGroup = null;
+    this.sourceZoneGroup = null;
     this.buildingFocus = { enabled: true, radius: 2000, x: 0, z: 0 };
     this.viewLocked = false;
     this.fly = null;
@@ -222,18 +223,40 @@ export class TsunamiScene {
   }
 
   setCameraView(type) {
-    const t = new THREE.Vector3(0, 10, 0);
-    let p = new THREE.Vector3(0, 1500, 2200);
+    const W = this.terrain?.W || 4000;
+    const isMiyako = this.terrain?.name === 'miyako_port';
+    // Town/port center: near originE + 2900m for Miyako, originE + 2000m for Taro
+    const townX = -W / 2 + (isMiyako ? 2900 : 2000);
+    const t = new THREE.Vector3(townX, 10, 0);
+    let p = new THREE.Vector3(townX + 1500, 1500, 2200);
+
     if (type === 'viewBird') {
-      p.set(0, 2400, 2000);
-      t.set(0, 0, 0);
+      // Whole area bird-eye view from above the bay (shows coastal town and offshore wave source)
+      p.set(500, Math.max(3400, W * 0.46), Math.max(3000, W * 0.40));
+      t.set(500, 0, 0);
     } else if (type === 'viewCoast') {
-      // offshore (east of the bay) looking west at the town and seawall
-      p.set(1500, 300, 750);
-      t.set(-100, 0, -150);
+      // Near-offshore looking west at the town and historic seawall
+      p.set(townX + 1600, 320, 650);
+      t.set(townX + 100, 10, -50);
     } else if (type === 'viewTown') {
-      p.set(-400, 160, 400);
-      t.set(200, 20, -100);
+      // Close-up on the town and seawall
+      p.set(townX - 450, 220, 420);
+      t.set(townX + 150, 20, -50);
+    } else if (type === 'viewOffshore') {
+      // Behind offshore wave source zone (X ~ W/2) looking west toward the coast
+      p.set(W / 2 + 350, 1100, 1200);
+      t.set(townX + 500, 30, 0);
+    } else if (type === 'viewSource') {
+      // Close-up focus on the offshore wave source zone and rotation arrow
+      if (isMiyako) {
+        // Miyako Bay northern entrance (deep sea entrance off Omoe peninsula)
+        p.set(2150, 520, -2300);
+        t.set(1450, 15, -1750);
+      } else {
+        const srcX = W / 2 - 250;
+        p.set(srcX + 750, 480, 600);
+        t.set(srcX, 15, 0);
+      }
     } else if (type === 'viewBackdrop') {
       p.set(2500, 6000, 7000);
       t.set(0, 0, 0);
@@ -256,6 +279,184 @@ export class TsunamiScene {
     }
   }
 
+  buildSourceZone(meta, waveDirectionDeg = 90) {
+    if (this.sourceZoneGroup) {
+      this.scene.remove(this.sourceZoneGroup);
+      this.sourceZoneGroup.traverse((obj) => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
+          else obj.material.dispose();
+        }
+      });
+      this.sourceZoneGroup = null;
+      this.sourceRotGroup = null;
+    }
+
+    const { nx, ny, res } = meta;
+    const W = nx * res;
+    const H = ny * res;
+    const isMiyako = meta.name === 'miyako_port';
+    const townX = -W / 2 + (isMiyako ? 2900 : 2000);
+    const rootGroup = new THREE.Group();
+
+    // Wave source position:
+    // - Taro: East offshore deep sea (W/2 - 250, Z=0)
+    // - Miyako Port: Miyako Bay entrance (X=1450, Z=-1750) - placed in deep water at bay mouth,
+    //   avoiding the mountainous Omoe Peninsula to the east, aligned with tsunami from Taro offshore/epicenter.
+    const pivotX = isMiyako ? 1450 : W / 2 - 250;
+    const pivotZ = isMiyako ? -1750 : 0;
+
+    // Rotatable group containing source zone frame, plane, beacons, buoy and direction arrow
+    const rotGroup = new THREE.Group();
+    rotGroup.position.set(pivotX, 0, pivotZ);
+
+    const zoneW = isMiyako ? 380 : Math.min(500, W * 0.08);
+    const zoneH = isMiyako ? 1700 : H - 100;
+    const halfW = zoneW / 2;
+    const halfH = zoneH / 2;
+    const yTop = 8.0;
+    const yBase = -1.0;
+
+    // 1. Red bounding box lines around source zone (centered at 0, 0 in rotGroup)
+    const linePositions = [
+      // Bottom rect
+      -halfW, yBase, -halfH,  halfW, yBase, -halfH,
+       halfW, yBase, -halfH,  halfW, yBase,  halfH,
+       halfW, yBase,  halfH, -halfW, yBase,  halfH,
+      -halfW, yBase,  halfH, -halfW, yBase, -halfH,
+      // Top rect
+      -halfW, yTop,  -halfH,  halfW, yTop,  -halfH,
+       halfW, yTop,  -halfH,  halfW, yTop,   halfH,
+       halfW, yTop,   halfH, -halfW, yTop,   halfH,
+      -halfW, yTop,   halfH, -halfW, yTop,  -halfH,
+      // Vertical corner pillars
+      -halfW, yBase, -halfH, -halfW, 60, -halfH,
+       halfW, yBase, -halfH,  halfW, 60, -halfH,
+       halfW, yBase,  halfH,  halfW, 60,  halfH,
+      -halfW, yBase,  halfH, -halfW, 60,  halfH,
+    ];
+    const lineGeom = new THREE.BufferGeometry();
+    lineGeom.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+    const lineMat = new THREE.LineBasicMaterial({ color: 0xff1744, transparent: true, opacity: 0.95 });
+    rotGroup.add(new THREE.LineSegments(lineGeom, lineMat));
+
+    // 2. Translucent red fill over source sea area
+    const planeGeom = new THREE.PlaneGeometry(zoneW, zoneH);
+    planeGeom.rotateX(-Math.PI / 2);
+    const planeMat = new THREE.MeshBasicMaterial({
+      color: 0xff1744,
+      transparent: true,
+      opacity: 0.22,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const zonePlane = new THREE.Mesh(planeGeom, planeMat);
+    zonePlane.position.y = 0.6;
+    rotGroup.add(zonePlane);
+
+    // 3. Corner beacon spheres
+    const beaconMat = new THREE.MeshBasicMaterial({ color: 0xff5252 });
+    const beaconGeom = new THREE.SphereGeometry(10, 12, 8);
+    [[-halfW, -halfH], [halfW, -halfH], [halfW, halfH], [-halfW, halfH]].forEach(([bx, bz]) => {
+      const b = new THREE.Mesh(beaconGeom, beaconMat);
+      b.position.set(bx, 60, bz);
+      rotGroup.add(b);
+    });
+
+    // 4. Large 3D Direction Arrow pointing in propagation direction toward the coast
+    const arrowGroup = new THREE.Group();
+    const shaftLen = 450;
+    const shaftRadius = 6;
+    const shaftGeom = new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftLen, 12);
+    shaftGeom.rotateZ(Math.PI / 2);
+    shaftGeom.translate(-shaftLen / 2 - halfW, 14, 0);
+    const shaftMat = new THREE.MeshStandardMaterial({
+      color: 0x00e5ff,
+      emissive: 0x00b0ff,
+      emissiveIntensity: 0.6,
+      roughness: 0.25,
+    });
+    const shaft = new THREE.Mesh(shaftGeom, shaftMat);
+
+    const headLen = 120;
+    const headRadius = 28;
+    const headGeom = new THREE.ConeGeometry(headRadius, headLen, 16);
+    headGeom.rotateZ(-Math.PI / 2);
+    headGeom.translate(-shaftLen - halfW - headLen / 2, 14, 0);
+    const headMat = new THREE.MeshStandardMaterial({
+      color: 0xffeb3b,
+      emissive: 0xffd600,
+      emissiveIntensity: 0.7,
+      roughness: 0.2,
+    });
+    const head = new THREE.Mesh(headGeom, headMat);
+    arrowGroup.add(shaft, head);
+    rotGroup.add(arrowGroup);
+
+    // 5. Offshore observation buoy at center of rotGroup
+    const buoyGroup = new THREE.Group();
+    const buoyBody = new THREE.Mesh(
+      new THREE.CylinderGeometry(16, 20, 18, 16),
+      new THREE.MeshStandardMaterial({ color: 0xff9100, roughness: 0.35, metalness: 0.2 })
+    );
+    buoyBody.position.y = 9;
+    const mast = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.8, 1.8, 35, 8),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 })
+    );
+    mast.position.y = 32;
+    const light = new THREE.Mesh(
+      new THREE.SphereGeometry(5, 12, 8),
+      new THREE.MeshBasicMaterial({ color: 0x00e5ff })
+    );
+    light.position.y = 52;
+    buoyGroup.add(buoyBody, mast, light);
+    buoyGroup.position.set(0, 0, 0);
+    rotGroup.add(buoyGroup);
+
+    // Apply initial rotation matching waveDirectionDeg
+    const rad = -((waveDirectionDeg - 90) * Math.PI) / 180;
+    rotGroup.rotation.y = rad;
+    this.sourceRotGroup = rotGroup;
+    rootGroup.add(rotGroup);
+
+    // 6. Coastal monitoring buoy in front of seawall (fixed in coastal bay)
+    const coastalBuoy = new THREE.Group();
+    const cBody = new THREE.Mesh(
+      new THREE.CylinderGeometry(12, 14, 14, 16),
+      new THREE.MeshStandardMaterial({ color: 0x00e5ff, roughness: 0.35, metalness: 0.2 })
+    );
+    cBody.position.y = 7;
+    const cMast = new THREE.Mesh(
+      new THREE.CylinderGeometry(1.4, 1.4, 24, 8),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 })
+    );
+    cMast.position.y = 23;
+    const cLight = new THREE.Mesh(
+      new THREE.SphereGeometry(4, 12, 8),
+      new THREE.MeshBasicMaterial({ color: 0x76ff03 })
+    );
+    cLight.position.y = 37;
+    coastalBuoy.add(cBody, cMast, cLight);
+    coastalBuoy.position.set(townX + (isMiyako ? 350 : 450), 0, isMiyako ? 50 : 0);
+    rootGroup.add(coastalBuoy);
+
+    rootGroup.renderOrder = 4;
+    this.sourceZoneGroup = rootGroup;
+    this.scene.add(rootGroup);
+  }
+
+  updateSourceZoneDirection(deg) {
+    if (!this.sourceRotGroup) return;
+    const rad = -((deg - 90) * Math.PI) / 180;
+    this.sourceRotGroup.rotation.y = rad;
+  }
+
+  setSourceZoneVisible(v) {
+    if (this.sourceZoneGroup) this.sourceZoneGroup.visible = v;
+  }
+
   async loadTexture(url) {
     const tex = await new THREE.TextureLoader().loadAsync(url);
     tex.colorSpace = THREE.SRGBColorSpace;
@@ -275,7 +476,7 @@ export class TsunamiScene {
     }
     geom.computeVertexNormals();
 
-    this.terrain = { nx, ny, res, W: nx * res, H: ny * res, ground: groundF32 };
+    this.terrain = { name: meta.name, nx, ny, res, W: nx * res, H: ny * res, ground: groundF32 };
     const mat = new THREE.MeshStandardMaterial({ map: await this.loadTexture(aerialUrl), roughness: 0.85, metalness: 0.05 });
     this.groundMesh = new THREE.Mesh(geom, mat);
     this.groundMesh.receiveShadow = true;

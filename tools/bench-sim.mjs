@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TsunamiSimulator } from '../src/tsunamiSim.js';
+import { TsunamiSimulator, WaveProfile } from '../src/tsunamiSim.js';
 import { TSUNAMI_SCENARIOS } from '../src/scenarios.js';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -17,7 +17,18 @@ const buildings = JSON.parse(fs.readFileSync(path.join(dir, 'buildings.json'), '
 const N = meta.nx * meta.ny;
 const seawallManager = { barrierGrid: new Float32Array(N).fill(-999), barrierActive: new Uint8Array(N) };
 const sim = new TsunamiSimulator({ meta, ground, seawallManager, buildings });
-sim.setScenario(TSUNAMI_SCENARIOS[scId]);
+
+const sc = { ...TSUNAMI_SCENARIOS[scId] };
+if (sc.csvUrl) {
+  const cleanUrl = sc.csvUrl.replace(/^\.\//, '');
+  const csvPath = path.join(appRoot, 'public', cleanUrl);
+  if (fs.existsSync(csvPath)) {
+    const csvText = fs.readFileSync(csvPath, 'utf8');
+    sc.waveProfile = WaveProfile.parse(csvText, path.basename(csvPath));
+    console.log(`Loaded wave CSV: ${sc.waveProfile.name}, peak: ${sc.waveProfile.peakHeight.toFixed(2)}m at ${sc.waveProfile.peakTimeSec}s`);
+  }
+}
+sim.setScenario(sc);
 
 const endSec = Number(minutes) * 60;
 const t0 = performance.now();

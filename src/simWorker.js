@@ -4,6 +4,7 @@
  * recycled between threads to avoid per-frame allocations.
  */
 import { TsunamiSimulator } from './tsunamiSim.js';
+import { WaveProfile } from './waveProfile.js';
 
 const FRAME_BUDGET_MS = 30; // wall time spent stepping between posted frames
 const MAX_POOL = 3;
@@ -195,8 +196,21 @@ self.onmessage = (e) => {
       barriers.barrierGrid = m.barrierGrid;
       barriers.barrierActive = m.barrierActive;
       break;
-    case 'scenario':
-      sim.setScenario(m.scenario);
+    case 'scenario': {
+      const sc = { ...m.scenario };
+      if (sc.waveProfile) {
+        sc.waveProfile = WaveProfile.deserialize(sc.waveProfile);
+      }
+      sim.setScenario(sc);
+      post(null, true);
+      break;
+    }
+    case 'waveProfile':
+      sim.setWaveProfile(WaveProfile.deserialize(m.profile));
+      post(null, true);
+      break;
+    case 'injectWave':
+      sim.injectPulseWave(m.params);
       post(null, true);
       break;
     case 'customWave':

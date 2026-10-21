@@ -9,15 +9,26 @@ import { t, setLang, getLang } from './i18n.js';
 import { toLonLat } from './proj.js';
 import { buildBatchZip, waveCrests } from './batchExport.js';
 import { offshoreWaveEta } from './tsunamiSim.js';
+import { WaveProfile } from './waveProfile.js';
 
 const RENDER_STEP = 2; // water mesh = every 2nd sim cell (10 m)
 const $ = (id) => document.getElementById(id);
 
-const COMPASS_JA = ['北', '北北東', '北東', '東北東', '東', '東南東', '南東', '南南東', '南'];
-const COMPASS_EN = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S'];
+const COMPASS_JA = [
+  '北', '北北東', '北東', '東北東',
+  '東', '東南東', '南東', '南南東',
+  '南', '南南西', '南西', '西南西',
+  '西', '西北西', '北西', '北北西',
+];
+const COMPASS_EN = [
+  'N', 'NNE', 'NE', 'ENE',
+  'E', 'ESE', 'SE', 'SSE',
+  'S', 'SSW', 'SW', 'WSW',
+  'W', 'WNW', 'NW', 'NNW',
+];
 const compass = (deg) => {
-  const k = Math.max(0, Math.min(8, Math.round(deg / 22.5)));
-  return (getLang() === 'en' ? COMPASS_EN : COMPASS_JA)[k];
+  const norm = ((Math.round(deg / 22.5) % 16) + 16) % 16;
+  return (getLang() === 'en' ? COMPASS_EN : COMPASS_JA)[norm];
 };
 
 class App {
@@ -26,7 +37,10 @@ class App {
     this.scene = new TsunamiScene(this.canvas);
     this.depthChart = new DepthChart($('depth-chart-canvas'));
 
-    this.currentRegion = 'taro';
+    const urlParams = new URLSearchParams(window.location.search);
+    const regionParam = urlParams.get('region');
+    this.currentRegion = (regionParam === 'miyako_port' || regionParam === 'taro') ? regionParam : 'taro';
+    if ($('select-region')) $('select-region').value = this.currentRegion;
     this.regionMeta = null;
     this.groundF32 = null;
     this.buildings = [];
@@ -43,6 +57,10 @@ class App {
     this.recording = null;
     this.keyframes = [];
     this.loadToken = 0;
+
+    // Wave profile from CSV (nankai_trough or user import)
+    this.activeWaveProfile = null;
+    this.isPulseMode = false;
 
     this.init();
   }
@@ -182,6 +200,10 @@ class App {
     await this.scene.buildOverlay('inund5', `data/regions/${regionName}/inund2011_5m.png`, { nearest: true });
     this.scene.setOverlayVisible('inund5', $('chk-inund5').checked);
     this.scene.buildWaterMesh(meta, RENDER_STEP);
+    const scInit = TSUNAMI_SCENARIOS[$('select-scenario').value] || TSUNAMI_SCENARIOS.great_east_japan;
+    const initWaveDir = (scInit.directionDegByRegion && scInit.directionDegByRegion[regionName]) || (regionName === 'miyako_port' ? 50 : 110);
+    this.scene.buildSourceZone(meta, initWaveDir);
+    this.scene.setSourceZoneVisible($('chk-sourcezone').checked);
     this.scene.buildBuildings(buildings, meta, ground);
     this.scene.setBuildingFocus({ x: 0, z: 0 });
     if (this.scene.pinMesh) this.scene.pinMesh.visible = false;
@@ -227,10 +249,18 @@ class App {
     await this.labelMgr.loadLabels();
     this.labelMgr.setVisible($('chk-labels').checked);
 
+    this.currentRegion = regionName;
     this.scene.setCameraView('viewCoast');
 
-    const sc = TSUNAMI_SCENARIOS[$('select-scenario').value] || TSUNAMI_SCENARIOS.great_east_japan;
-    this.applyScenario(sc);
+    const dirInput = $('input-wave-dir');
+    if (dirInput) {
+      dirInput.min = 0;
+      dirInput.max = 360;
+    }
+
+    const sc = TSUNAMI_SCENARIOS[$('select-scenario').value] || TSUNAMI_SCENARIOS.nankai_trough || TSUNAMI_SCENARIOS.great_east_japan;
+    await this.applyScenario(sc);
+    this.updateLanguageTexts();
   }
 
   /** 2011 tsunami survey points (measured water levels) for comparison with the simulation. */
@@ -405,28 +435,151 @@ class App {
       .join('');
   }
 
-  applyScenario(sc) {
+  showCsvMetadataBadge(profile) {
+    const badge = $('csv-meta-badge');
+    if (!badge) return;
+    $('csv-meta-name').textContent = profile.location || profile.name || profile.filename || '波源データ';
+    $('csv-meta-peak').textContent = `${profile.peakHeight.toFixed(2)}m`;
+    const min = Math.floor(profile.peakTimeSec / 60);
+    const sec = Math.round(profile.peakTimeSec % 60);
+    $('csv-meta-time').textContent = `${min}分${sec < 10 ? '0' : ''}${sec}秒`;
+    $('csv-meta-dur').textContent = `${(profile.durationSec / 60).toFixed(1)}分`;
+    const dir = profile.dominantDirectionDeg || 93;
+    $('csv-meta-dir').textContent = `${dir}° (${compass(dir)})`;
+    badge.style.display = 'block';
+  }
+
+  hideCsvMetadataBadge() {
+    const badge = $('csv-meta-badge');
+    if (badge) badge.style.display = 'none';
+  }
+
+  async applyScenario(sc) {
     this.setSimulating(false);
-    this.sim.setScenario(sc);
+    const deg = (sc.directionDegByRegion && sc.directionDegByRegion[this.currentRegion]) || sc.directionDeg;
+
+    // Load CSV wave profile if this scenario is driven by a CSV file
+    if (sc.isCsvWave) {
+      if (!sc.waveProfile && sc.csvUrl) {
+        try {
+          const res = await fetch(sc.csvUrl);
+          if (res.ok) {
+            const csvText = await res.text();
+            sc.waveProfile = WaveProfile.parse(csvText, sc.csvUrl.split('/').pop());
+          }
+        } catch (err) {
+          console.error('Failed to load wave CSV:', err);
+        }
+      }
+      if (sc.waveProfile) {
+        this.activeWaveProfile = sc.waveProfile;
+        this.showCsvMetadataBadge(sc.waveProfile);
+        sc.waveHeight = sc.waveProfile.peakHeight;
+        sc.durationMin = Math.ceil(sc.waveProfile.durationSec / 60);
+      }
+    } else {
+      this.activeWaveProfile = null;
+      this.hideCsvMetadataBadge();
+    }
+
+    this.currentScenarioId = sc.id;
+    this.sim.setScenario({ ...sc, directionDeg: deg, waveProfile: this.activeWaveProfile });
     this.updateScenarioDesc(sc);
     $('input-wave-height').value = sc.waveHeight;
     $('val-wave-height').textContent = `${sc.waveHeight.toFixed(1)}m`;
-    $('input-wave-dir').value = sc.directionDeg;
-    this.updateDirLabel(sc.directionDeg);
+    $('input-wave-dir').value = deg;
+    this.updateDirLabel(deg);
+    this.scene.updateSourceZoneDirection(deg);
     this.depthChart.history = [];
-    this.waveParams = { waveHeight: sc.waveHeight, wavePeriod: sc.periodSec, hasPreDrawdown: !!sc.hasPreDrawdown };
+    this.waveParams = {
+      waveHeight: sc.waveHeight,
+      wavePeriod: sc.periodSec,
+      hasPreDrawdown: !!sc.hasPreDrawdown,
+      waveProfile: this.activeWaveProfile,
+    };
     $('batch-minutes').value = sc.durationMin || 30;
     this.drawWavePreview();
+    this.updateHUD();
   }
 
   /** Offshore boundary waveform over the batch duration, with each crest marked. */
   drawWavePreview() {
     const cv = $('wave-preview');
-    if (!this.waveParams || !cv.clientWidth) return;
+    if (!cv || !cv.clientWidth) return;
     const w = (cv.width = cv.clientWidth);
     const h = (cv.height = cv.clientHeight);
     const ctx = cv.getContext('2d');
     const dur = Math.max(60, (Number($('batch-minutes').value) || 30) * 60);
+    const en = getLang() === 'en';
+
+    // 1. If activeWaveProfile is loaded (nankai_trough or imported CSV), draw real wave curve
+    if (this.activeWaveProfile) {
+      const prof = this.activeWaveProfile;
+      const maxAbs = Math.max(1, prof.peakHeight, Math.abs(prof.troughHeight)) * 1.25;
+      const X = (t) => 8 + (t / dur) * (w - 16);
+      const Y = (e) => h / 2 - (e / maxAbs) * (h / 2 - 10);
+
+      ctx.clearRect(0, 0, w, h);
+
+      // 0m reference line
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, Y(0));
+      ctx.lineTo(w, Y(0));
+      ctx.stroke();
+
+      // Plot actual wave elevation
+      ctx.strokeStyle = '#00e5ff';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      const numSteps = Math.min(w, 400);
+      for (let i = 0; i <= numSteps; i++) {
+        const tt = (i / numSteps) * dur;
+        const val = prof.getEta(tt);
+        const px = X(tt);
+        const py = Y(val);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+
+      // Mark peak surge
+      if (prof.peakTimeSec <= dur) {
+        const px = X(prof.peakTimeSec);
+        const py = Y(prof.peakHeight);
+        ctx.fillStyle = '#ff1744';
+        ctx.beginPath();
+        ctx.arc(px, py, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 9.5px Inter, sans-serif';
+        ctx.fillText(`▲ ${prof.peakHeight.toFixed(2)}m`, px - 14, Math.max(12, py - 6));
+      }
+
+      // Mark maximum drawdown (trough)
+      if (prof.troughTimeSec <= dur && prof.troughHeight < -0.1) {
+        const tx = X(prof.troughTimeSec);
+        const ty = Y(prof.troughHeight);
+        ctx.fillStyle = '#00b0ff';
+        ctx.beginPath();
+        ctx.arc(tx, ty, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#80d8ff';
+        ctx.font = '9px Inter, sans-serif';
+        ctx.fillText(`▼ ${prof.troughHeight.toFixed(2)}m`, tx - 14, Math.min(h - 4, ty + 12));
+      }
+
+      const pMin = (prof.peakTimeSec / 60).toFixed(1);
+      const tMin = (prof.troughTimeSec / 60).toFixed(1);
+      $('wave-crests').textContent = en
+        ? `Drawdown ${prof.troughHeight.toFixed(2)}m (${tMin} min) → Peak surge +${prof.peakHeight.toFixed(2)}m (${pMin} min)`
+        : `最大引き波 ${prof.troughHeight.toFixed(2)}m (${tMin}分) → 最大押し波 +${prof.peakHeight.toFixed(2)}m (${pMin}分)`;
+      return;
+    }
+
+    // 2. Default equation-based wave preview (historic Tohoku, L1, L2, Chile, Custom)
+    if (!this.waveParams) return;
     const p = this.waveParams;
     const amp = Math.max(1, p.waveHeight) * 1.15;
     const X = (t) => 4 + (t / dur) * (w - 8);
@@ -456,7 +609,6 @@ class App {
       ctx.fill();
       ctx.fillText(`${k + 1}`, X(c.t) + 4, Y(c.h) + 3);
     });
-    const en = getLang() === 'en';
     $('wave-crests').textContent = crests.length
       ? crests.map((c, k) => (en ? `Wave ${k + 1}: ${(c.t / 60).toFixed(1)} min ${c.h.toFixed(1)}m` : `第${k + 1}波 ${(c.t / 60).toFixed(1)}分 ${c.h.toFixed(1)}m`)).join(' / ')
       : en ? 'No crest within this duration' : 'この長さの中に波の山はありません';
@@ -527,7 +679,11 @@ class App {
   }
 
   updateDirLabel(deg) {
-    $('val-wave-dir').textContent = `${deg}° ${compass(deg)}`;
+    const isMiyako = this.currentRegion === 'miyako_port';
+    const note = isMiyako && deg >= 40 && deg <= 65 ? (getLang() === 'en' ? ' (Bay Mouth)' : '（宮古湾口）') : '';
+    const normDeg = Math.round(((deg % 360) + 360) % 360);
+    const degStr = deg < 0 ? `${normDeg}° (${deg}°)` : `${deg}°`;
+    $('val-wave-dir').textContent = `${degStr} ${compass(deg)}${note}`;
   }
 
   setSimulating(on) {
@@ -551,6 +707,9 @@ class App {
 
     $('select-region').addEventListener('change', (e) => {
       this.currentRegion = e.target.value;
+      const u = new URL(window.location.href);
+      u.searchParams.set('region', this.currentRegion);
+      window.history.replaceState({}, '', u.toString());
       this.loadRegion(this.currentRegion);
     });
 
@@ -614,9 +773,36 @@ class App {
     $('input-wave-dir').addEventListener('input', (e) => {
       const deg = parseFloat(e.target.value);
       this.updateDirLabel(deg);
+      this.scene.updateSourceZoneDirection(deg);
       this.sim.setCustomWave({ direction: deg });
       selScenario.value = 'custom';
     });
+
+    // Wave Source CSV Import UI & Drag-and-Drop
+    this.initWaveCsvUI();
+
+    // Artificial Wave (Pulse Injection) Mode Toggle
+    const btnPulse = $('btn-pulse-mode');
+    const pulseControls = $('pulse-controls');
+    if (btnPulse) {
+      btnPulse.addEventListener('click', () => {
+        this.isPulseMode = !this.isPulseMode;
+        btnPulse.classList.toggle('active', this.isPulseMode);
+        btnPulse.textContent = this.isPulseMode
+          ? (getLang() === 'en' ? '🎯 Click water to inject wave (Active)' : '🎯 水面クリックで人工波注入中 (ON)')
+          : t('injectPulseWave');
+        if (pulseControls) {
+          pulseControls.style.display = this.isPulseMode ? 'block' : 'none';
+        }
+      });
+    }
+
+    const inputPulseH = $('input-pulse-height');
+    if (inputPulseH) {
+      inputPulseH.addEventListener('input', (e) => {
+        $('val-pulse-height').textContent = `${parseFloat(e.target.value).toFixed(1)}m`;
+      });
+    }
 
     $('btn-play').addEventListener('click', () => this.setSimulating(!this.isSimulating));
 
@@ -625,6 +811,7 @@ class App {
       this.setSimulating(false);
       this.sim.reset();
       this.depthChart.history = [];
+      this.updateHUD();
     });
 
     $('btn-point-csv').addEventListener('click', () => this.exportPointCsv());
@@ -691,6 +878,7 @@ class App {
     $('chk-bldg-focus').addEventListener('change', (e) => this.scene.setBuildingFocus({ enabled: e.target.checked }));
     $('sel-bldg-radius').addEventListener('change', (e) => this.scene.setBuildingFocus({ radius: Number(e.target.value) }));
     $('chk-labels').addEventListener('change', (e) => this.labelMgr?.setVisible(e.target.checked));
+    $('chk-sourcezone').addEventListener('change', (e) => this.scene.setSourceZoneVisible(e.target.checked));
     $('chk-backdrop').addEventListener('change', (e) => {
       if (this.scene.outerMesh) this.scene.outerMesh.visible = e.target.checked;
     });
@@ -789,6 +977,98 @@ class App {
     });
   }
 
+  initWaveCsvUI() {
+    const fileInput = $('input-wave-csv');
+    const dropZone = $('csv-drop-zone');
+    const btnClear = $('btn-csv-clear');
+
+    if (fileInput) {
+      fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        if (file) {
+          await this.loadWaveCsvFile(file);
+          fileInput.value = '';
+        }
+      });
+    }
+
+    if (dropZone) {
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+      });
+      dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+      });
+      dropZone.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        const file = e.dataTransfer?.files?.[0];
+        if (file && (file.name.endsWith('.csv') || file.type.includes('csv') || file.type === 'text/plain')) {
+          await this.loadWaveCsvFile(file);
+        }
+      });
+    }
+
+    // Global drag & drop on window for easy file drop
+    window.addEventListener('dragover', (e) => e.preventDefault());
+    window.addEventListener('drop', async (e) => {
+      const file = e.dataTransfer?.files?.[0];
+      if (file && file.name.endsWith('.csv')) {
+        e.preventDefault();
+        await this.loadWaveCsvFile(file);
+      }
+    });
+
+    if (btnClear) {
+      btnClear.addEventListener('click', () => {
+        this.activeWaveProfile = null;
+        this.hideCsvMetadataBadge();
+        const sel = $('select-scenario');
+        if (sel.value === 'csv_custom') {
+          sel.value = 'nankai_trough';
+          const sc = TSUNAMI_SCENARIOS.nankai_trough;
+          if (sc) this.applyScenario(sc);
+        } else {
+          this.drawWavePreview();
+        }
+      });
+    }
+  }
+
+  async loadWaveCsvFile(file) {
+    try {
+      const text = await file.text();
+      const profile = WaveProfile.parse(text, file.name);
+      this.activeWaveProfile = profile;
+
+      TSUNAMI_SCENARIOS.csv_custom = {
+        id: 'csv_custom',
+        name: `波源CSV: ${profile.filename || profile.name}`,
+        name_en: `Wave CSV: ${profile.filename || profile.name}`,
+        waveHeight: profile.peakHeight,
+        periodSec: profile.peakTimeSec || 600,
+        directionDeg: profile.dominantDirectionDeg || 93,
+        durationMin: Math.max(30, Math.ceil(profile.durationSec / 60)),
+        hasPreDrawdown: profile.troughHeight < -0.1,
+        isCsvWave: true,
+        waveProfile: profile,
+        description: `読み込み済み波源データ（${profile.location || file.name}）。最大波高 ${profile.peakHeight.toFixed(2)}m（到達: ${(profile.peakTimeSec / 60).toFixed(1)}分）、総時間 ${(profile.durationSec / 60).toFixed(1)}分、${profile.count}点。`,
+        description_en: `Imported wave boundary data (${profile.location || file.name}). Peak surge ${profile.peakHeight.toFixed(2)}m (at ${(profile.peakTimeSec / 60).toFixed(1)} min), duration ${(profile.durationSec / 60).toFixed(1)} min, ${profile.count} samples.`,
+        recommendedSeawall: 'historic_10',
+      };
+
+      const selScenario = $('select-scenario');
+      selScenario.value = 'csv_custom';
+      await this.applyScenario(TSUNAMI_SCENARIOS.csv_custom);
+    } catch (err) {
+      console.error('Failed to parse wave CSV:', err);
+      alert(getLang() === 'en'
+        ? `Error parsing wave CSV file: ${err.message}`
+        : `波源CSVの読み込みに失敗しました: ${err.message}`);
+    }
+  }
+
   pickPoint(x, y) {
     const p = this.scene.pickSurface(x, y);
     if (!p || !this.sim) return;
@@ -800,6 +1080,25 @@ class App {
     const gx = Math.floor(worldX / res);
     const gz = Math.floor(worldZ / res);
     const elevation = this.groundF32[gz * nx + gx];
+
+    // Artificial wave pulse injection mode
+    if (this.isPulseMode) {
+      if (elevation < 0) {
+        const h = parseFloat($('input-pulse-height')?.value) || 5.0;
+        const deg = parseFloat($('input-wave-dir')?.value) || 90;
+        this.sim.injectWave({
+          worldX,
+          worldZ,
+          height: h,
+          radius: 180,
+          directionDeg: deg,
+        });
+        this.scene.setPin(p.x, p.z, elevation);
+        this.frameDirty = true;
+      }
+      return;
+    }
+
     this.selectedPoint = { worldX, worldZ };
     this.pointElevation = elevation;
     this.pointLog = [];
@@ -823,8 +1122,76 @@ class App {
   updateHUD() {
     const stats = this.sim?.stats;
     if (!stats) return;
-    $('stat-time').textContent = `${stats.simTimeMin} ${t('unitMin')}`;
-    $('stat-wave-h').textContent = `${stats.offshoreWaveHeight.toFixed(1)} m`;
+
+    // 1. High precision Dual LAP & Earthquake timer
+    const sec = this.sim.simTimeSec || 0;
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    const ms = Math.floor((sec % 1) * 10);
+    const timeEl = $('stat-time');
+    if (timeEl) {
+      timeEl.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${ms}`;
+    }
+
+    // Time since earthquake origin (seconds)
+    // Offset comes from activeWaveProfile or scenario definition
+    let offsetSec = 0;
+    if (this.activeWaveProfile && this.activeWaveProfile.timeOffset != null) {
+      offsetSec = this.activeWaveProfile.timeOffset;
+    } else {
+      const curSc = TSUNAMI_SCENARIOS[this.currentScenarioId];
+      if (curSc && curSc.eqTimeOffsetSec != null) {
+        offsetSec = curSc.eqTimeOffsetSec;
+      }
+    }
+
+    const eqSec = Math.max(0, sec + offsetSec);
+    const eqH = Math.floor(eqSec / 3600);
+    const eqM = Math.floor((eqSec % 3600) / 60);
+    const eqS = Math.floor(eqSec % 60);
+    const eqTimeEl = $('stat-eq-time');
+    if (eqTimeEl) {
+      eqTimeEl.textContent = `${String(eqH).padStart(2, '0')}:${String(eqM).padStart(2, '0')}:${String(eqS).padStart(2, '0')}`;
+    }
+
+    const eqOffsetTag = $('stat-eq-offset-tag');
+    if (eqOffsetTag) {
+      if (offsetSec > 0) {
+        const offMin = Math.round(offsetSec / 60);
+        eqOffsetTag.textContent = `+${offMin}m`;
+        eqOffsetTag.title = `地震発生から波源境界までのオフセット: ${offsetSec}秒 (${offMin}分)`;
+      } else {
+        eqOffsetTag.textContent = '⏱️ EQ';
+        eqOffsetTag.title = '地震発生時を0秒として計算';
+      }
+    }
+
+    // 2. Distance from wave front to coastline
+    const distEl = $('stat-wave-dist');
+    if (distEl) {
+      if (stats.waveStatus === 'landfall' || (stats.waveFrontDistM !== undefined && stats.waveFrontDistM <= 0)) {
+        distEl.textContent = getLang() === 'en' ? '⚠️ Shore Inundation!' : '⚠️ 沿岸到達・遡上中！';
+        distEl.style.color = '#ff5252';
+        distEl.classList.add('pulse-alert');
+      } else {
+        const dM = Math.round(stats.waveFrontDistM || 0);
+        distEl.textContent = `${dM.toLocaleString()} m`;
+        distEl.style.color = dM < 1500 ? '#ffd54f' : '#00e5ff';
+        distEl.classList.remove('pulse-alert');
+      }
+    }
+
+    // 3. Water heights: Offshore source (5.9km) vs Coastal Bay
+    const offEta = stats.offshoreWaveHeight || 0;
+    $('stat-wave-h').textContent = `${offEta >= 0 ? '+' : ''}${offEta.toFixed(1)} m`;
+
+    const coastEl = $('stat-coastal-h');
+    if (coastEl) {
+      const cEta = stats.coastalWaveHeight || 0;
+      coastEl.textContent = `${cEta >= 0 ? '+' : ''}${cEta.toFixed(1)} m`;
+      coastEl.style.color = Math.abs(cEta) >= 1.0 ? '#ff80ab' : '#69f0ae';
+    }
+
     $('stat-runup').textContent = `${stats.maxRunup.toFixed(1)} m`;
     $('stat-area').textContent = `${stats.inundatedAreaHa.toFixed(1)} ha`;
     $('stat-buildings').textContent = `${stats.inundatedBuildings} ${t('unitBldg')}`;
@@ -845,6 +1212,26 @@ class App {
     document.querySelectorAll('[data-i18n]').forEach((el) => {
       el.textContent = t(el.dataset.i18n);
     });
+    const isMiyako = this.currentRegion === 'miyako_port';
+    const en = getLang() === 'en';
+    const offEl = document.querySelector('[data-i18n="offshoreHeight"]');
+    if (offEl) {
+      offEl.textContent = isMiyako
+        ? (en ? 'Wave Source (Bay Mouth)' : '波源 (宮古湾口・田老沖)')
+        : (en ? 'Wave Source (5.9km Offshore)' : '波源 (田老沖5.9km)');
+    }
+    const coastEl = document.querySelector('[data-i18n="coastalHeight"]');
+    if (coastEl) {
+      coastEl.textContent = isMiyako
+        ? (en ? 'Miyako Port (Seawall Front)' : '宮古港 (沿岸防潮堤前)')
+        : (en ? 'Taro Bay (Seawall Front)' : '田老湾 (沿岸防潮堤前)');
+    }
+    const townEl = document.querySelector('[data-i18n="viewTown"]');
+    if (townEl) {
+      townEl.textContent = isMiyako
+        ? (en ? 'Miyako City / Port' : '宮古市街地・港')
+        : (en ? 'Taro Downtown' : '田老市街地');
+    }
     $('btn-lock-view').textContent = t(this.scene.viewLocked ? 'unlockView' : 'lockView');
     for (const [btn, panel] of [['btn-toggle-sidebar', 'control-sidebar'], ['btn-toggle-chart', 'bottom-hud']]) {
       $(btn).title = t($(panel).classList.contains('collapsed') ? 'expand' : 'collapse');

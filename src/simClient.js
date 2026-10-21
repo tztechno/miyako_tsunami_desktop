@@ -70,7 +70,23 @@ export class SimClient {
     });
   }
 
-  setScenario(scenario) { this.worker.postMessage({ type: 'scenario', scenario }); }
+  setScenario(scenario) {
+    const sc = { ...scenario };
+    if (sc.waveProfile && typeof sc.waveProfile.serialize === 'function') {
+      sc.waveProfile = sc.waveProfile.serialize();
+    }
+    this.worker.postMessage({ type: 'scenario', scenario: sc });
+  }
+
+  setWaveProfile(profile) {
+    const serialized = profile && typeof profile.serialize === 'function' ? profile.serialize() : profile;
+    this.worker.postMessage({ type: 'waveProfile', profile: serialized });
+  }
+
+  injectWave(params) {
+    this.worker.postMessage({ type: 'injectWave', params });
+  }
+
   setCustomWave(params) { this.worker.postMessage({ type: 'customWave', params }); }
   reset() { this.worker.postMessage({ type: 'reset' }); }
   play() { this.worker.postMessage({ type: 'play' }); }

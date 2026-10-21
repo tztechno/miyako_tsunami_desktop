@@ -52,13 +52,45 @@
             <span>⚡</span> <span data-i18n="scenario">津波シナリオ</span>
           </label>
           <select id="select-scenario">
-            <option value="great_east_japan" selected data-i18n="scenarios.great_east_japan">東日本大震災 (2011年再現)</option>
+            <option value="nankai_trough" selected data-i18n="scenarios.nankai_trough">南海トラフ巨大地震連動 (nankai_trough波源 - 4.08m)</option>
+            <option value="nankai_trough_full" data-i18n="scenarios.nankai_trough_full">南海トラフ巨大地震 (2時間フルタイムライン)</option>
+            <option value="great_east_japan" data-i18n="scenarios.great_east_japan">東日本大震災 (2011年再現)</option>
             <option value="l2_maximum" data-i18n="scenarios.l2_maximum">想定最大規模 L2津波 (県公表 - 19.5m)</option>
             <option value="l1_design" data-i18n="scenarios.l1_design">施設計画規模 L1津波 (設計波 - 14.0m)</option>
             <option value="chile_1960" data-i18n="scenarios.chile_1960">チリ地震津波 (1960年再現 - 5.5m)</option>
-            <option value="custom" data-i18n="scenarios.custom">カスタム津波パラメータ</option>
+            <option value="custom" data-i18n="scenarios.custom">カスタム津波パラメータ (人工波)</option>
+            <option value="csv_custom" style="display: none;" data-i18n="scenarios.csv_custom">インポート波源CSV (ユーザー読込)</option>
           </select>
-          <p id="scenario-desc" style="font-size: 11px; color: var(--text-dim); line-height: 1.4;"></p>
+          <p id="scenario-desc" style="font-size: 11px; color: var(--text-dim); line-height: 1.4; margin-top: 6px;"></p>
+
+          <!-- Wave Source CSV Import Box -->
+          <div id="csv-import-box" class="csv-import-box">
+            <div class="csv-drop-zone" id="csv-drop-zone">
+              <span class="csv-icon">🌊</span>
+              <div class="csv-drop-text">
+                <strong data-i18n="csvImportTitle">波源CSV連携 (nankai_trough等)</strong>
+                <span class="csv-hint" data-i18n="csvDropHint">CSVファイルをここにドラッグ＆ドロップ</span>
+              </div>
+              <label for="input-wave-csv" class="btn btn-sm btn-secondary" style="cursor: pointer; margin: 0;">
+                <span data-i18n="csvImportBtn">📁 CSV選択</span>
+                <input id="input-wave-csv" type="file" accept=".csv,text/csv" style="display: none;" />
+              </label>
+            </div>
+            <!-- Loaded CSV Metadata Badge (shown when loaded) -->
+            <div id="csv-meta-badge" class="csv-meta-badge" style="display: none;">
+              <div class="csv-meta-header">
+                <span class="badge-status-dot"></span>
+                <span id="csv-meta-name" class="csv-meta-title">波源データ</span>
+                <button id="btn-csv-clear" class="btn-icon-clear" title="クリア">×</button>
+              </div>
+              <div class="csv-meta-grid">
+                <div class="meta-item"><span class="meta-lbl" data-i18n="csvPeak">最大波高</span><span id="csv-meta-peak" class="meta-val">4.08m</span></div>
+                <div class="meta-item"><span class="meta-lbl" data-i18n="csvTime">到達時刻</span><span id="csv-meta-time" class="meta-val">18分48秒</span></div>
+                <div class="meta-item"><span class="meta-lbl" data-i18n="csvDuration">継続時間</span><span id="csv-meta-dur" class="meta-val">53.8分</span></div>
+                <div class="meta-item"><span class="meta-lbl" data-i18n="tsunamiDirection">来襲方向</span><span id="csv-meta-dir" class="meta-val">93° (東)</span></div>
+              </div>
+            </div>
+          </div>
         </section>
 
         <!-- 3. Seawall Controls -->
@@ -82,21 +114,40 @@
           </div>
         </section>
 
-        <!-- 4. Wave Parameters -->
+        <!-- 4. Wave Parameters & Artificial Wave Trigger -->
         <section class="panel-section">
           <div class="slider-group">
             <div class="slider-header">
               <span data-i18n="tsunamiHeight">津波の波高 (沖合)</span>
-              <span id="val-wave-height" class="slider-val">8.0m</span>
+              <span id="val-wave-height" class="slider-val">4.1m</span>
             </div>
-            <input id="input-wave-height" type="range" min="3" max="25" step="0.5" value="8" />
+            <input id="input-wave-height" type="range" min="1" max="25" step="0.1" value="4.1" />
           </div>
           <div class="slider-group">
             <div class="slider-header">
               <span data-i18n="tsunamiDirection">津波の来襲方向</span>
-              <span id="val-wave-dir" class="slider-val">110° 東南東</span>
+              <span id="val-wave-dir" class="slider-val">93° 東</span>
             </div>
-            <input id="input-wave-dir" type="range" min="30" max="170" step="5" value="110" />
+            <input id="input-wave-dir" type="range" min="0" max="360" step="1" value="93" />
+          </div>
+
+          <!-- Artificial Wave Generator on Map -->
+          <div class="pulse-wave-box" id="pulse-wave-box">
+            <div class="pulse-wave-header">
+              <span class="pulse-icon">🎯</span>
+              <span data-i18n="artificialWave">任意地点への人工波発生</span>
+              <button id="btn-pulse-mode" class="btn btn-sm btn-outline-cyan" data-i18n="injectPulseWave">水面クリックで人工波を起こす</button>
+            </div>
+            <div id="pulse-controls" class="pulse-sub-controls" style="display: none;">
+              <div class="slider-group" style="margin-top: 6px;">
+                <div class="slider-header">
+                  <span data-i18n="pulseHeight">人工波の高さ</span>
+                  <span id="val-pulse-height" class="slider-val">5.0m</span>
+                </div>
+                <input id="input-pulse-height" type="range" min="1" max="20" step="0.5" value="5.0" />
+              </div>
+              <p class="hint" style="margin-top: 4px; font-size: 10px; color: var(--accent-cyan);">💡 海上の好きな地点をクリックすると、その場所を中心とした人工津波波頭が発生して海岸へ伝播します。</p>
+            </div>
           </div>
         </section>
 
@@ -145,10 +196,16 @@
             <button class="btn" data-view="viewTown" data-i18n="viewTown">田老市街地</button>
           </div>
           <div class="button-row">
+            <button class="btn" data-view="viewOffshore" data-i18n="viewOffshore">🌊 沖合・来襲</button>
             <button class="btn" data-view="viewBird" data-i18n="viewBird">全体俯瞰</button>
+          </div>
+          <div class="button-row">
+            <button class="btn" data-view="viewSource" data-i18n="viewSource">🎯 沖合波源</button>
             <button class="btn" data-view="viewBackdrop" data-i18n="viewBackdrop">🗾 広域リアス</button>
           </div>
-          <button id="btn-lock-view" class="btn" data-i18n="lockView">🔓 視点を固定 (L)</button>
+          <div class="button-row">
+            <button id="btn-lock-view" class="btn" data-i18n="lockView">🔓 視点を固定 (L)</button>
+          </div>
           <p class="hint" data-i18n="controlsHint">クリック: 地点観察 / ダブルクリック: 回転の中心に移動 / 左ドラッグ: 回転 / 右ドラッグ: 移動 / ホイール: ズーム / WASD・QE: 移動・上下 (Shiftで高速)</p>
         </section>
 
@@ -264,6 +321,10 @@
             <span data-i18n="showLabels">地名・施設ラベル</span>
           </label>
           <label class="checkbox-label">
+            <input id="chk-sourcezone" type="checkbox" checked />
+            <span data-i18n="showSourceZone">🚨 津波発生領域（赤枠・ブイ）</span>
+          </label>
+          <label class="checkbox-label">
             <input id="chk-backdrop" type="checkbox" checked />
             <span data-i18n="showBackdrop">周辺広域地形 (miyako.tif)</span>
           </label>
@@ -275,14 +336,47 @@
         <h2 class="section-title" data-i18n="stats">被害・治水メーター</h2>
         <div id="overflow-banner" class="overflow-banner" data-i18n="overflowNone">越流なし（防御中）</div>
         <div class="stat-grid">
-          <div class="stat-card">
-            <div class="stat-label" data-i18n="elapsedTime">経過時間</div>
-            <div id="stat-time" class="stat-value">0.0 分</div>
+          <!-- 1. High precision Dual Timer (Simulation LAP + Earthquake Origin) -->
+          <div class="stat-card stat-timer-card" style="grid-column: span 2;">
+            <div class="stat-timer-split">
+              <!-- Left: Sim LAP Time -->
+              <div class="stat-timer-block">
+                <div class="stat-header-row">
+                  <span class="stat-label" data-i18n="elapsedTime">計算時間 (LAP)</span>
+                  <span class="live-badge">● RUN</span>
+                </div>
+                <div id="stat-time" class="stat-value stat-value-timer">00:00.0</div>
+              </div>
+              <div class="stat-timer-divider"></div>
+              <!-- Right: Since Earthquake Time -->
+              <div class="stat-timer-block">
+                <div class="stat-header-row">
+                  <span class="stat-label stat-label-eq" data-i18n="timeSinceEQ">地震発生後</span>
+                  <span id="stat-eq-offset-tag" class="eq-badge">⏱️ EQ</span>
+                </div>
+                <div id="stat-eq-time" class="stat-value stat-value-eq">00:00:00</div>
+              </div>
+            </div>
+            <div id="stat-eq-note" class="stat-timer-note" data-i18n="timeSinceEQNote">※ 地震発生からの経過時間（波源オフセット加算）</div>
           </div>
+
+          <!-- 2. Distance from wave front to coastline -->
+          <div class="stat-card" style="grid-column: span 2; border: 1px solid rgba(0, 229, 255, 0.45); background: rgba(0, 229, 255, 0.06);">
+            <div class="stat-label" data-i18n="waveFrontDistance">🌊 津波の先端から岸まで</div>
+            <div id="stat-wave-dist" class="stat-value" style="font-size: 19px; color: #00e5ff; font-weight: 700;">5,800 m</div>
+          </div>
+
+          <!-- 3. Offshore Wave Height vs Coastal Bay Wave Height -->
           <div class="stat-card">
-            <div class="stat-label" data-i18n="offshoreHeight">沖合の水位</div>
+            <div class="stat-label" data-i18n="offshoreHeight">波源 (沖合5.9km)</div>
             <div id="stat-wave-h" class="stat-value">0.0 m</div>
           </div>
+          <div class="stat-card">
+            <div class="stat-label" data-i18n="coastalHeight">田老湾 (沿岸防潮堤前)</div>
+            <div id="stat-coastal-h" class="stat-value" style="color: #69f0ae;">0.0 m</div>
+          </div>
+
+          <!-- 4. Max Runup & Inundated Area -->
           <div class="stat-card">
             <div class="stat-label" data-i18n="maxRunup">最大遡上高</div>
             <div id="stat-runup" class="stat-value">0.0 m</div>
@@ -291,6 +385,8 @@
             <div class="stat-label" data-i18n="inundatedArea">浸水面積</div>
             <div id="stat-area" class="stat-value">0.0 ha</div>
           </div>
+
+          <!-- 5. Inundated Buildings -->
           <div class="stat-card" style="grid-column: span 2;">
             <div class="stat-label" data-i18n="inundatedBuildings">浸水建物 (床上0.5m以上)</div>
             <div id="stat-buildings" class="stat-value" style="color: #ff80ab;">0 棟</div>

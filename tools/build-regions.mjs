@@ -16,10 +16,13 @@ const REGIONS = [
     label_en: 'Taro District (Historic Seawall)',
     lat: 39.7368,
     lon: 141.9720,
-    size: 4000,
+    originE: 95600,
+    originN: -26600,
+    widthM: 8000, // 8km East-West: expanded 4km further offshore to observe incoming tsunami waves
+    heightM: 4000, // 4km North-South
     res: 5,
-    zoomAerial: 16,
-    seaFloorDepth: -25,
+    zoomAerial: 15,
+    seaFloorDepth: -35,
   },
   {
     name: 'miyako_port',
@@ -27,23 +30,33 @@ const REGIONS = [
     label_en: 'Miyako Port & Hei River Estuary',
     lat: 39.6410,
     lon: 141.9560,
-    size: 4000,
+    originE: 94360,
+    originN: -37255,
+    widthM: 8000, // 8km East-West: expanded into outer ocean off Miyako Bay
+    heightM: 4000,
     res: 5,
-    zoomAerial: 16,
-    seaFloorDepth: -25,
+    zoomAerial: 15,
+    seaFloorDepth: -35,
   },
 ];
 
 async function main() {
   const targetName = process.argv[2];
+  const force = process.argv.includes('--force');
   for (const reg of REGIONS) {
-    if (targetName && reg.name !== targetName) continue;
+    if (targetName && reg.name !== targetName && !force) continue;
     console.log(`\n=== Building region: ${reg.name} (${reg.label}) ===`);
-    const nx = Math.round(reg.size / reg.res);
-    const ny = nx;
-    const [cE, cN] = toPlane(reg.lon, reg.lat);
-    const originE = Math.round((cE - (nx * reg.res) / 2) / reg.res) * reg.res;
-    const originN = Math.round((cN + (ny * reg.res) / 2) / reg.res) * reg.res;
+    const widthM = reg.widthM || reg.size;
+    const heightM = reg.heightM || reg.size;
+    const nx = Math.round(widthM / reg.res);
+    const ny = Math.round(heightM / reg.res);
+    let originE = reg.originE;
+    let originN = reg.originN;
+    if (originE === undefined || originN === undefined) {
+      const [cE, cN] = toPlane(reg.lon, reg.lat);
+      originE = Math.round((cE - (nx * reg.res) / 2) / reg.res) * reg.res;
+      originN = Math.round((cN + (ny * reg.res) / 2) / reg.res) * reg.res;
+    }
     const outDir = path.join(appRoot, 'public', 'data', 'regions', reg.name);
     fs.mkdirSync(outDir, { recursive: true });
 
@@ -52,7 +65,7 @@ async function main() {
 
     let minH = 0, maxH = 50;
     // 1. DEM
-    if (!fs.existsSync(groundFile)) {
+    if (force || !fs.existsSync(groundFile)) {
       const resDem = await buildDem({
         cacheDir,
         originE,
@@ -76,14 +89,14 @@ async function main() {
 
     // 2. Aerial
     let aerialImg = { width: 1024, height: 1024 };
-    if (!fs.existsSync(aerialFile)) {
+    if (force || !fs.existsSync(aerialFile)) {
       aerialImg = await buildAerial({
         outFile: aerialFile,
         cacheDir,
         originE,
         originN,
-        widthM: reg.size,
-        heightM: reg.size,
+        widthM,
+        heightM,
         zoom: reg.zoomAerial,
         metersPerPx: reg.res,
       });
@@ -102,6 +115,8 @@ async function main() {
       originE,
       originN,
       center: { lat: reg.lat, lon: reg.lon },
+      widthM,
+      heightM,
       groundMin: minH,
       groundMax: maxH,
       aerial: aerialImg,
@@ -123,6 +138,8 @@ async function main() {
         nx: meta.nx,
         ny: meta.ny,
         res: meta.res,
+        widthM: meta.widthM || meta.nx * meta.res,
+        heightM: meta.heightM || meta.ny * meta.res,
         originE: meta.originE,
         originN: meta.originN,
         center: meta.center,

@@ -59,13 +59,14 @@ async function main() {
     const base = { cacheDir, originE: meta.originE, originN: meta.originN, widthM, heightM, metersPerPx: 2.5, maxPx: 1600 };
     console.log(`\n=== ${name} ===`);
 
+    const force = process.argv.includes('--force');
     const hazardFile = path.join(dir, 'hazard_tsunami.png');
-    if (!fs.existsSync(hazardFile)) {
-      await buildAerial({ ...base, outFile: hazardFile, zoom: 17, tileUrl: HAZARD_URL, cacheTag: 'tsunami_', transparent: true });
+    if (force || !fs.existsSync(hazardFile)) {
+      await buildAerial({ ...base, maxPx: Math.max(1600, Math.round(widthM / 2.5)), outFile: hazardFile, zoom: 16, tileUrl: HAZARD_URL, cacheTag: 'tsunami_', transparent: true });
     }
     const photoFile = path.join(dir, 'aerial_2011.jpg');
-    if (!fs.existsSync(photoFile)) {
-      await buildAerial({ ...base, outFile: photoFile, zoom: 17, tileUrl: TOHO1_URL, cacheTag: 'toho1_' });
+    if (force || !fs.existsSync(photoFile)) {
+      await buildAerial({ ...base, maxPx: Math.max(1600, Math.round(widthM / 2.5)), outFile: photoFile, zoom: 16, tileUrl: TOHO1_URL, cacheTag: 'toho1_' });
     }
 
     if (survey) {

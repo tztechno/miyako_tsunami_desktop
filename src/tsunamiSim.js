@@ -4,13 +4,16 @@
  * + Seawall overtopping barrier mechanics + Plateau 3D buildings obstacle mask.
  */
 
+import { WaveProfile } from './waveProfile.js';
+export { WaveProfile };
+
 /**
  * Offshore boundary water level (m) at time t (s): for hasPreDrawdown a drawdown, the main
  * crest, then follow-on waves at 55 % height repeating every period; otherwise one solitary wave.
  */
 export function offshoreWaveEta(t, { waveHeight, wavePeriod, hasPreDrawdown }) {
   if (t < 0) return 0.0;
-  const omega = (2 * Math.PI) / wavePeriod;
+  const omega = (2 * Math.PI) / (wavePeriod || 720);
   if (hasPreDrawdown) {
     const phase = omega * t;
     if (phase < Math.PI * 0.5) return -Math.sin(phase * 2) * (waveHeight * 0.15); // initial drawdown
@@ -20,7 +23,7 @@ export function offshoreWaveEta(t, { waveHeight, wavePeriod, hasPreDrawdown }) {
     }
     return Math.sin(phase - Math.PI * 2.5) * (waveHeight * 0.55); // follow-on waves
   }
-  const u = (t - wavePeriod * 0.4) / (wavePeriod * 0.2);
+  const u = (t - (wavePeriod || 720) * 0.4) / ((wavePeriod || 720) * 0.2);
   const sech = 1 / Math.cosh(Math.max(-10, Math.min(10, u)));
   return waveHeight * sech * sech;
 }
@@ -63,6 +66,7 @@ export class TsunamiSimulator {
     this.manningN = 0.025; // coastal/urban friction
 
     // Wave parameters (default: 2011 Tohoku recorded)
+    this.waveProfile = null; // CsvWaveProfile instance if driven by CSV wave source
     this.waveHeight = 8.0;
     this.wavePeriod = 720;
     this.waveDirectionDeg = 90; // 90 = from East
@@ -70,8 +74,12 @@ export class TsunamiSimulator {
 
     // Stats
     this.stats = {
+      simTimeSec: 0,
       simTimeMin: 0,
       offshoreWaveHeight: 0,
+      coastalWaveHeight: 0,
+      waveFrontDistM: 0,
+      waveStatus: 'approaching',
       maxRunup: 0,
       inundatedAreaHa: 0,
       inundatedBuildings: 0,
@@ -82,6 +90,29 @@ export class TsunamiSimulator {
     // Time series logs for CSV export
     this.history = [];
     this.lastLogSec = -100;
+  }
+
+  initCoastline() {
+    const { nx, ny, ground } = this;
+    let sumX = 0, count = 0;
+    for (let y = 0; y < ny; y++) {
+      for (let x = nx - 1; x >= 0; x--) {
+        if (ground[y * nx + x] >= 0) {
+          sumX += x;
+          count++;
+          break;
+        }
+      }
+    }
+    this.coastCellX = count > 0 ? Math.round(sumX / count) : Math.round(nx * 0.25);
+    const coastalCells = [];
+    for (let y = Math.floor(ny * 0.3); y <= Math.floor(ny * 0.7); y++) {
+      const gx = Math.min(nx - 1, this.coastCellX + 15);
+      if (ground[y * nx + gx] < 0) {
+        coastalCells.push(y * nx + gx);
+      }
+    }
+    this.coastalCells = coastalCells;
   }
 
   initWater() {
@@ -122,6 +153,7 @@ export class TsunamiSimulator {
   }
 
   setScenario(scenario) {
+    this.waveProfile = scenario.waveProfile || null;
     this.waveHeight = scenario.waveHeight;
     this.wavePeriod = scenario.periodSec;
     this.waveDirectionDeg = scenario.directionDeg;
@@ -130,13 +162,80 @@ export class TsunamiSimulator {
     this.reset();
   }
 
+  setWaveProfile(profile) {
+    this.waveProfile = profile;
+    if (profile) {
+      this.waveHeight = profile.peakHeight;
+      this.waveDirectionDeg = profile.dominantDirectionDeg != null ? profile.dominantDirectionDeg : 90;
+    }
+    this.setupBoundary();
+    this.reset();
+  }
+
+  clearWaveProfile() {
+    this.waveProfile = null;
+  }
+
   setCustomWave({ height, period, direction }) {
+    this.waveProfile = null; // Clear CSV profile when switching to custom parameters
     if (height !== undefined) this.waveHeight = height;
     if (period !== undefined) this.wavePeriod = period;
     if (direction !== undefined) {
       this.waveDirectionDeg = direction;
       this.setupBoundary();
     }
+  }
+
+  /**
+   * Injects an artificial wave pulse at an arbitrary sea location (worldX, worldZ)
+   * with optional directional momentum. Allows user to trigger artificial waves
+   * anywhere in the bay or ocean.
+   */
+  injectPulseWave({ worldX, worldZ, height = 4.0, radius = 180, directionDeg = null }) {
+    const { nx, ny, res, ground } = this;
+    const cx = Math.floor(worldX / res);
+    const cz = Math.floor(worldZ / res);
+    const rCells = Math.ceil(radius / res);
+
+    const x0 = Math.max(1, cx - rCells);
+    const x1 = Math.min(nx - 2, cx + rCells);
+    const z0 = Math.max(1, cz - rCells);
+    const z1 = Math.min(ny - 2, cz + rCells);
+
+    let kE = 0;
+    let kN = 0;
+    if (directionDeg != null) {
+      const rad = (directionDeg * Math.PI) / 180;
+      kE = -Math.sin(rad);
+      kN = -Math.cos(rad);
+    }
+
+    for (let z = z0; z <= z1; z++) {
+      for (let x = x0; x <= x1; x++) {
+        const idx = z * nx + x;
+        if (ground[idx] >= 0) continue; // Only on water
+        const dist = Math.hypot((x - cx) * res, (z - cz) * res);
+        if (dist > radius) continue;
+
+        // Smooth cosine bell pulse
+        const pulse = height * Math.cos((dist / radius) * (Math.PI * 0.5));
+        if (pulse <= 0) continue;
+
+        this.eta[idx] += pulse;
+        this.depth[idx] = Math.max(0, this.eta[idx] - ground[idx]);
+        if (this.depth[idx] > this.maxDepth[idx]) {
+          this.maxDepth[idx] = this.depth[idx];
+        }
+
+        // Add momentum flux if directional
+        if (directionDeg != null && this.depth[idx] > 0.1) {
+          const c = Math.sqrt(9.80665 * this.depth[idx]);
+          this.qx[idx] += pulse * c * kE;
+          this.qy[idx] += pulse * c * kN;
+        }
+      }
+    }
+    this.updateStats();
   }
 
   /**
@@ -174,6 +273,9 @@ export class TsunamiSimulator {
 
   /** Current offshore tsunami boundary wave elevation (m) */
   getOffshoreWaveEta(t) {
+    if (this.waveProfile) {
+      return this.waveProfile.getEta(t);
+    }
     return offshoreWaveEta(t, this);
   }
 
@@ -428,9 +530,53 @@ export class TsunamiSimulator {
   }
 
   updateStats() {
+    this.stats.simTimeSec = this.simTimeSec;
     this.stats.simTimeMin = (this.simTimeSec / 60).toFixed(1);
+
+    if (this.coastCellX === undefined) this.initCoastline();
+
+    // 1. Coastal wave height (in the bay fronting the seawall)
+    let coastalEta = 0;
+    if (this.coastalCells && this.coastalCells.length > 0) {
+      let sum = 0;
+      for (let k = 0; k < this.coastalCells.length; k++) {
+        sum += this.eta[this.coastalCells[k]];
+      }
+      coastalEta = sum / this.coastalCells.length;
+    }
+    this.stats.coastalWaveHeight = coastalEta;
+
+    // 2. Wave front distance from coast
+    const { nx, ny, res, eta, ground, coastCellX } = this;
+    if (this.stats.inundatedAreaHa > 0.05) {
+      this.stats.waveFrontDistM = 0;
+      this.stats.waveStatus = 'landfall';
+    } else {
+      let minWaveX = nx - 1;
+      // Scan sea cells (|eta| >= 0.25m or flow)
+      const stepY = 3;
+      for (let y = Math.floor(ny * 0.2); y < Math.floor(ny * 0.8); y += stepY) {
+        for (let x = coastCellX; x < nx - 2; x++) {
+          const idx = y * nx + x;
+          if (ground[idx] < 0 && Math.abs(eta[idx]) >= 0.25) {
+            if (x < minWaveX) minWaveX = x;
+            break;
+          }
+        }
+      }
+      if (minWaveX <= coastCellX + 1) {
+        this.stats.waveFrontDistM = 0;
+        this.stats.waveStatus = 'landfall';
+      } else if (minWaveX >= nx - 4) {
+        this.stats.waveFrontDistM = Math.max(0, (nx - 1 - coastCellX) * res);
+        this.stats.waveStatus = 'approaching';
+      } else {
+        this.stats.waveFrontDistM = Math.max(0, (minWaveX - coastCellX) * res);
+        this.stats.waveStatus = 'approaching';
+      }
+    }
+
     // Count inundated buildings (> 0.5m water)
-    const { res } = this.meta;
     let bldCount = 0;
     for (const b of this.buildings) {
       const gx = Math.floor(b.x / res);
