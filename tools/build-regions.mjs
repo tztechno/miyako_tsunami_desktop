@@ -9,8 +9,8 @@ import { buildAerial } from './lib/aerial.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(here, '..');
 const cacheDir = path.join(appRoot, '.cache', 'gsi');
-// Seabed: japan.tif (15 arc-second topography + bathymetry) in the project root
-const bathyTif = path.resolve(appRoot, '..', 'japan.tif');
+// Seabed: japan.tif (15 arc-second topography + bathymetry) in the project root or DOCS/
+const bathyTif = [path.resolve(appRoot, '..', 'japan.tif'), path.resolve(appRoot, '..', 'DOCS', 'japan.tif')].find((p) => fs.existsSync(p));
 
 const REGIONS = [
   {

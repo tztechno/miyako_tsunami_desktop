@@ -154,6 +154,7 @@ export class TsunamiSimulator {
 
   setScenario(scenario) {
     this.waveProfile = scenario.waveProfile || null;
+    this.profileScale = 1;
     this.waveHeight = scenario.waveHeight;
     this.wavePeriod = scenario.periodSec;
     this.waveDirectionDeg = scenario.directionDeg;
@@ -164,6 +165,7 @@ export class TsunamiSimulator {
 
   setWaveProfile(profile) {
     this.waveProfile = profile;
+    this.profileScale = 1;
     if (profile) {
       this.waveHeight = profile.peakHeight;
       this.waveDirectionDeg = profile.dominantDirectionDeg != null ? profile.dominantDirectionDeg : 90;
@@ -176,9 +178,12 @@ export class TsunamiSimulator {
     this.waveProfile = null;
   }
 
+  /** Slider changes. With a CSV profile the waveform is kept: height scales it, direction only turns the incoming plane wave. */
   setCustomWave({ height, period, direction }) {
-    this.waveProfile = null; // Clear CSV profile when switching to custom parameters
-    if (height !== undefined) this.waveHeight = height;
+    if (height !== undefined) {
+      this.waveHeight = height;
+      if (this.waveProfile && this.waveProfile.peakHeight > 0) this.profileScale = height / this.waveProfile.peakHeight;
+    }
     if (period !== undefined) this.wavePeriod = period;
     if (direction !== undefined) {
       this.waveDirectionDeg = direction;
@@ -274,7 +279,7 @@ export class TsunamiSimulator {
   /** Current offshore tsunami boundary wave elevation (m) */
   getOffshoreWaveEta(t) {
     if (this.waveProfile) {
-      return this.waveProfile.getEta(t);
+      return this.waveProfile.getEta(t) * (this.profileScale ?? 1);
     }
     return offshoreWaveEta(t, this);
   }

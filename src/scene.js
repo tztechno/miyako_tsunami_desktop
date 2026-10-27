@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { toPlane } from './proj.js';
 
 const PIN_SCREEN_SCALE = 0.006; // pin height ≈ 18px regardless of zoom
 
@@ -247,8 +248,13 @@ export class TsunamiScene {
       p.set(W / 2 + 350, 1100, 1200);
       t.set(townX + 500, 30, 0);
     } else if (type === 'viewSource') {
-      // Close-up focus on the offshore wave source zone and rotation arrow
-      if (isMiyako) {
+      if (this.csvSourceXZ) {
+        // Wave CSV point (often ~20 km offshore): look out to it from behind the region, region in the foreground
+        const { x, z } = this.csvSourceXZ;
+        const d = Math.hypot(x, z) || 1;
+        t.set(x * 0.45, 0, z * 0.45);
+        p.set((-x / d) * 3500, 3000, (-z / d) * 3500);
+      } else if (isMiyako) {
         // Miyako Bay northern entrance (deep sea entrance off Omoe peninsula)
         p.set(2150, 520, -2300);
         t.set(1450, 15, -1750);
@@ -455,6 +461,60 @@ export class TsunamiScene {
 
   setSourceZoneVisible(v) {
     if (this.sourceZoneGroup) this.sourceZoneGroup.visible = v;
+    if (this.csvSourceGroup) this.csvSourceGroup.visible = v;
+  }
+
+  /** Scene position (x, z) of a lon/lat relative to the region centre. */
+  lonLatToScene(meta, lon, lat) {
+    const [e, n] = toPlane(lon, lat);
+    return { x: e - meta.originE - (meta.nx * meta.res) / 2, z: meta.originN - n - (meta.ny * meta.res) / 2 };
+  }
+
+  /**
+   * Marker at the point where a wave CSV was sampled (e.g. nankai_trough "Lon/Lat" header), usually outside
+   * the computed region, with a dashed line to the nearest edge of the region where the wave enters.
+   * Drawn without fog so it stays visible ~20 km away.
+   */
+  setCsvSource(meta, profile) {
+    if (this.csvSourceGroup) {
+      this.scene.remove(this.csvSourceGroup);
+      this.csvSourceGroup.traverse((o) => {
+        o.geometry?.dispose();
+        o.material?.dispose();
+      });
+      this.csvSourceGroup = null;
+      this.csvSourceXZ = null;
+    }
+    if (!meta || !profile || profile.lon == null || profile.lat == null) return;
+
+    const { x, z } = this.lonLatToScene(meta, profile.lon, profile.lat);
+    const halfW = (meta.nx * meta.res) / 2;
+    const halfH = (meta.ny * meta.res) / 2;
+    const edge = { x: Math.max(-halfW, Math.min(halfW, x)), z: Math.max(-halfH, Math.min(halfH, z)) };
+    const group = new THREE.Group();
+
+    const pillarH = 1200;
+    const pillar = new THREE.Mesh(
+      new THREE.CylinderGeometry(35, 35, pillarH, 16),
+      new THREE.MeshBasicMaterial({ color: 0xff1744, transparent: true, opacity: 0.85, fog: false })
+    );
+    pillar.position.set(x, pillarH / 2, z);
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(400, 520, 48).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0xff5252, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false, fog: false })
+    );
+    ring.position.set(x, 2, z);
+    const line = new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x, 20, z), new THREE.Vector3(edge.x, 20, edge.z)]),
+      new THREE.LineDashedMaterial({ color: 0xffeb3b, dashSize: 300, gapSize: 200, fog: false })
+    );
+    line.computeLineDistances();
+    group.add(pillar, ring, line);
+    group.renderOrder = 5;
+    group.visible = this.sourceZoneGroup ? this.sourceZoneGroup.visible : true;
+    this.csvSourceGroup = group;
+    this.csvSourceXZ = { x, z };
+    this.scene.add(group);
   }
 
   async loadTexture(url) {

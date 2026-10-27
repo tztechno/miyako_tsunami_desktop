@@ -11,6 +11,8 @@ export class WaveProfile {
     name = 'Custom Wave Source',
     filename = '',
     location = '',
+    lon = null,
+    lat = null,
     mode = '',
     maxSurge = 0,
     firstArrival = 0,
@@ -27,6 +29,8 @@ export class WaveProfile {
     this.name = name;
     this.filename = filename;
     this.location = location;
+    this.lon = lon; // Source point where the CSV was sampled (deg), from "# Location: ... (Lon: x, Lat: y)"
+    this.lat = lat;
     this.mode = mode;
     this.maxSurge = maxSurge;
     this.firstArrival = firstArrival;
@@ -41,6 +45,10 @@ export class WaveProfile {
     this.rawText = rawText;
 
     this.count = times.length;
+    // The first sample is the sea surface right after the quake, i.e. the coseismic subsidence/uplift at the
+    // CSV point. The city model starts from still water on undeformed terrain, so levels are used relative to it
+    // (assumes the town moved by about the same amount, as Miyako's coast subsided with the seafloor in 2011).
+    this.baseLevel = times.length > 0 ? elevations[0] : 0;
     this.tMin = times.length > 0 ? times[0] : 0;
     this.tMax = times.length > 0 ? times[times.length - 1] : 0;
     this.durationSec = Math.max(0, this.tMax - this.tMin);
@@ -51,7 +59,7 @@ export class WaveProfile {
     let minT = 0;
     let maxT = 0;
     for (let i = 0; i < this.count; i++) {
-      const e = this.elevations[i];
+      const e = this.elevations[i] - this.baseLevel;
       if (e > maxE) {
         maxE = e;
         maxT = this.times[i];
@@ -68,9 +76,14 @@ export class WaveProfile {
   }
 
   /**
-   * Evaluates the offshore water level eta (m) at time t (seconds) using linear interpolation.
+   * Offshore water level (m) at time t (s) relative to the initial level (baseLevel), linearly interpolated.
    */
   getEta(t) {
+    return this.getRawEta(t) - this.baseLevel;
+  }
+
+  /** Water level (m) at time t (s) as written in the CSV. */
+  getRawEta(t) {
     const { times, elevations, count, tMin, tMax } = this;
     if (count === 0) return 0.0;
     if (t <= tMin) return elevations[0];
@@ -134,6 +147,8 @@ export class WaveProfile {
       name: this.name,
       filename: this.filename,
       location: this.location,
+      lon: this.lon,
+      lat: this.lat,
       mode: this.mode,
       maxSurge: this.maxSurge,
       firstArrival: this.firstArrival,
@@ -173,6 +188,8 @@ export class WaveProfile {
 
     const lines = csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
     let location = '';
+    let lon = null;
+    let lat = null;
     let mode = '';
     let maxSurgeMeta = null;
     let firstArrivalMeta = null;
@@ -189,6 +206,12 @@ export class WaveProfile {
         const comment = line.slice(1).trim();
         const mLoc = comment.match(/Location:\s*(.+)$/i);
         if (mLoc) location = mLoc[1].trim();
+        const mLon = comment.match(/Lon:\s*([+-]?[0-9.]+)/i);
+        const mLat = comment.match(/Lat:\s*([+-]?[0-9.]+)/i);
+        if (mLon && mLat) {
+          lon = parseFloat(mLon[1]);
+          lat = parseFloat(mLat[1]);
+        }
 
         const mMode = comment.match(/Mode:\s*(.+)$/i);
         if (mMode) mode = mMode[1].trim();
@@ -286,40 +309,25 @@ export class WaveProfile {
       timeOffset = timeOffsetMeta;
     }
 
-    // Estimate dominant incoming direction (bearing from which wave approaches)
-    // In oceanography, flow Direction_deg is direction flow heads TO (e.g. 270 deg = West).
-    // Incoming wave bearing = (flowDir + 180) % 360 (e.g. 270 deg + 180 = 90 deg = East).
+    // Estimate the bearing the wave comes FROM. Direction_deg is where the flow heads TO (270 = West).
+    // In a long wave the flow runs with the wave under a crest and against it under a trough, so the
+    // propagation direction is the flow weighted by the signed level change (e - e0). Incoming = propagation + 180.
     let dominantDir = 90;
     if (directions && directions.length > 0) {
-      let maxIdx = 0;
-      let maxVal = -1e9;
-      for (let i = 0; i < elevations.length; i++) {
-        if (elevations[i] > maxVal) {
-          maxVal = elevations[i];
-          maxIdx = i;
-        }
+      const e0 = elevations[0];
+      let pE = 0;
+      let pN = 0;
+      for (let i = 0; i < directions.length; i++) {
+        const spd = speeds ? speeds[i] : 0;
+        if (!(spd > 0.01)) continue;
+        const a = elevations[i] - e0;
+        const rad = (directions[i] * Math.PI) / 180;
+        pE += Math.sin(rad) * spd * a;
+        pN += Math.cos(rad) * spd * a;
       }
-      const peakDir = directions[maxIdx];
-      if (!Number.isNaN(peakDir) && peakDir > 0) {
-        dominantDir = Math.round((peakDir + 180) % 360);
-      } else {
-        let sumSin = 0;
-        let sumCos = 0;
-        let countDir = 0;
-        for (let i = 0; i < directions.length; i++) {
-          const spd = speeds ? speeds[i] : Math.abs(elevations[i]);
-          if (spd > 0.05 && directions[i] > 0) {
-            const rad = (directions[i] * Math.PI) / 180;
-            sumSin += Math.sin(rad) * spd;
-            sumCos += Math.cos(rad) * spd;
-            countDir++;
-          }
-        }
-        if (countDir > 0) {
-          const avgFlowDir = (Math.atan2(sumSin, sumCos) * 180) / Math.PI;
-          const normFlow = (avgFlowDir + 360) % 360;
-          dominantDir = Math.round((normFlow + 180) % 360);
-        }
+      if (pE !== 0 || pN !== 0) {
+        const propDir = ((Math.atan2(pE, pN) * 180) / Math.PI + 360) % 360;
+        dominantDir = Math.round((propDir + 180) % 360);
       }
     }
 
@@ -330,8 +338,10 @@ export class WaveProfile {
       name,
       filename,
       location,
+      lon,
+      lat,
       mode,
-      maxSurge: maxSurgeMeta != null ? maxSurgeMeta : Math.max(...elevations),
+      maxSurge: maxSurgeMeta != null ? maxSurgeMeta : Math.max(...elevations) - elevations[0],
       firstArrival: firstArrivalMeta != null ? firstArrivalMeta : 0,
       times,
       elevations,

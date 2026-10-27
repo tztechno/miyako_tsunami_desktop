@@ -84,6 +84,36 @@ export class LabelManager {
     }
   }
 
+  /** Label for the wave CSV sampling point (null removes it). */
+  setSourceLabel(profile) {
+    this.elements = this.elements.filter((item) => {
+      if (item.label.id !== 'csv_source') return true;
+      item.el.remove();
+      return false;
+    });
+    if (!profile || profile.lon == null || profile.lat == null) return;
+
+    const { originE, originN, res, nx, ny } = this.meta;
+    const [e, n] = toPlane(profile.lon, profile.lat);
+    const x = e - originE - (nx * res) / 2;
+    const z = originN - n - (ny * res) / 2;
+    const ex = Math.max(-(nx * res) / 2, Math.min((nx * res) / 2, x));
+    const ez = Math.max(-(ny * res) / 2, Math.min((ny * res) / 2, z));
+    const km = (Math.hypot(x - ex, z - ez) / 1000).toFixed(1);
+    const where = profile.location || profile.filename || '';
+    const label = {
+      id: 'csv_source',
+      category: 'warning',
+      name: `📡 波源CSV地点 ${where}（計算域まで約${km}km）`,
+      name_en: `📡 Wave CSV point ${where} (~${km} km to model edge)`,
+    };
+    const el = document.createElement('div');
+    el.className = 'map-3d-label category-warning';
+    el.innerHTML = `<span class="label-dot"></span><span class="label-text">${getLang() === 'en' ? label.name_en : label.name}</span>`;
+    this.container.appendChild(el);
+    this.elements.push({ el, label, pos: new THREE.Vector3(x, 1260, z) });
+  }
+
   setVisible(v) {
     this.visible = v;
     this.container.style.display = v ? 'block' : 'none';

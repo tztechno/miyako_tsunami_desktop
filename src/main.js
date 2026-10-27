@@ -446,6 +446,8 @@ class App {
     $('csv-meta-dur').textContent = `${(profile.durationSec / 60).toFixed(1)}分`;
     const dir = profile.dominantDirectionDeg || 93;
     $('csv-meta-dir').textContent = `${dir}° (${compass(dir)})`;
+    // Levels are used relative to the first CSV value (see WaveProfile.baseLevel)
+    $('csv-meta-base').textContent = `${profile.baseLevel >= 0 ? '+' : ''}${profile.baseLevel.toFixed(2)}m → 0`;
     badge.style.display = 'block';
   }
 
@@ -490,6 +492,8 @@ class App {
     $('input-wave-dir').value = deg;
     this.updateDirLabel(deg);
     this.scene.updateSourceZoneDirection(deg);
+    this.scene.setCsvSource(this.regionMeta, this.activeWaveProfile);
+    this.labelMgr?.setSourceLabel(this.activeWaveProfile);
     this.depthChart.history = [];
     this.waveParams = {
       waveHeight: sc.waveHeight,
@@ -515,7 +519,8 @@ class App {
     // 1. If activeWaveProfile is loaded (nankai_trough or imported CSV), draw real wave curve
     if (this.activeWaveProfile) {
       const prof = this.activeWaveProfile;
-      const maxAbs = Math.max(1, prof.peakHeight, Math.abs(prof.troughHeight)) * 1.25;
+      const scale = prof.peakHeight > 0 ? (this.waveParams?.waveHeight ?? prof.peakHeight) / prof.peakHeight : 1;
+      const maxAbs = Math.max(1, prof.peakHeight * scale, Math.abs(prof.troughHeight * scale)) * 1.25;
       const X = (t) => 8 + (t / dur) * (w - 16);
       const Y = (e) => h / 2 - (e / maxAbs) * (h / 2 - 10);
 
@@ -536,7 +541,7 @@ class App {
       const numSteps = Math.min(w, 400);
       for (let i = 0; i <= numSteps; i++) {
         const tt = (i / numSteps) * dur;
-        const val = prof.getEta(tt);
+        const val = prof.getEta(tt) * scale;
         const px = X(tt);
         const py = Y(val);
         if (i === 0) ctx.moveTo(px, py);
@@ -547,34 +552,34 @@ class App {
       // Mark peak surge
       if (prof.peakTimeSec <= dur) {
         const px = X(prof.peakTimeSec);
-        const py = Y(prof.peakHeight);
+        const py = Y(prof.peakHeight * scale);
         ctx.fillStyle = '#ff1744';
         ctx.beginPath();
         ctx.arc(px, py, 4, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 9.5px Inter, sans-serif';
-        ctx.fillText(`▲ ${prof.peakHeight.toFixed(2)}m`, px - 14, Math.max(12, py - 6));
+        ctx.fillText(`▲ ${(prof.peakHeight * scale).toFixed(2)}m`, px - 14, Math.max(12, py - 6));
       }
 
       // Mark maximum drawdown (trough)
-      if (prof.troughTimeSec <= dur && prof.troughHeight < -0.1) {
+      if (prof.troughTimeSec <= dur && prof.troughHeight * scale < -0.1) {
         const tx = X(prof.troughTimeSec);
-        const ty = Y(prof.troughHeight);
+        const ty = Y(prof.troughHeight * scale);
         ctx.fillStyle = '#00b0ff';
         ctx.beginPath();
         ctx.arc(tx, ty, 3.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#80d8ff';
         ctx.font = '9px Inter, sans-serif';
-        ctx.fillText(`▼ ${prof.troughHeight.toFixed(2)}m`, tx - 14, Math.min(h - 4, ty + 12));
+        ctx.fillText(`▼ ${(prof.troughHeight * scale).toFixed(2)}m`, tx - 14, Math.min(h - 4, ty + 12));
       }
 
       const pMin = (prof.peakTimeSec / 60).toFixed(1);
       const tMin = (prof.troughTimeSec / 60).toFixed(1);
       $('wave-crests').textContent = en
-        ? `Drawdown ${prof.troughHeight.toFixed(2)}m (${tMin} min) → Peak surge +${prof.peakHeight.toFixed(2)}m (${pMin} min)`
-        : `最大引き波 ${prof.troughHeight.toFixed(2)}m (${tMin}分) → 最大押し波 +${prof.peakHeight.toFixed(2)}m (${pMin}分)`;
+        ? `Drawdown ${(prof.troughHeight * scale).toFixed(2)}m (${tMin} min) → Peak surge +${(prof.peakHeight * scale).toFixed(2)}m (${pMin} min)`
+        : `最大引き波 ${(prof.troughHeight * scale).toFixed(2)}m (${tMin}分) → 最大押し波 +${(prof.peakHeight * scale).toFixed(2)}m (${pMin}分)`;
       return;
     }
 
@@ -767,7 +772,8 @@ class App {
         this.waveParams.waveHeight = h;
         this.drawWavePreview();
       }
-      selScenario.value = 'custom';
+      // A CSV scenario stays selected: the slider only scales its waveform
+      if (!this.activeWaveProfile) selScenario.value = 'custom';
     });
 
     $('input-wave-dir').addEventListener('input', (e) => {
@@ -775,7 +781,7 @@ class App {
       this.updateDirLabel(deg);
       this.scene.updateSourceZoneDirection(deg);
       this.sim.setCustomWave({ direction: deg });
-      selScenario.value = 'custom';
+      if (!this.activeWaveProfile) selScenario.value = 'custom';
     });
 
     // Wave Source CSV Import UI & Drag-and-Drop
