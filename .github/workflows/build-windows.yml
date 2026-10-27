@@ -7,13 +7,11 @@ on:
         description: 'Release tag (defaults to v<version> in package.json)'
         required: false
         default: ''
+  # Build only for a release: pushing a v* tag (or a manual run). Commits to main do not rebuild or
+  # overwrite the published Release.
   push:
-    branches:
-      - main
     tags:
       - 'v*'
-    paths-ignore:
-      - '**.md'
 
 jobs:
   build-windows:
