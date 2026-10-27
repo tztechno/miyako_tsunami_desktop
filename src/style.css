@@ -551,20 +551,22 @@ input[type="range"] {
   margin-bottom: 0;
 }
 
-/* Depth legend (national standard colours) */
+/* Depth legend (national standard colours). One column in depth order: the standard's lowest classes are
+   very close in colour, and a two-column grid made each row read as one colour with two depths. */
 .depth-legend {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 3px 10px;
+  grid-template-columns: 1fr;
+  gap: 2px;
   font-size: 10.5px;
   color: var(--text-dim);
 }
 .depth-legend span {
   display: inline-block;
-  width: 14px;
-  height: 10px;
-  margin-right: 6px;
+  width: 22px;
+  height: 11px;
+  margin-right: 8px;
   border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.45);
   vertical-align: middle;
 }
 
