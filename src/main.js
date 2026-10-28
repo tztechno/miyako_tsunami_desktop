@@ -8,7 +8,7 @@ import { recordVideo, makeCameraPath } from './recorder.js';
 import { t, setLang, getLang } from './i18n.js';
 import { toLonLat } from './proj.js';
 import { buildBatchZip, waveCrests } from './batchExport.js';
-import { offshoreWaveEta, openBoundary, shoalingFactor } from './tsunamiSim.js';
+import { offshoreWaveEta, openBoundary, shoalingFactor, surveyFitsTerrain } from './tsunamiSim.js';
 import { WaveProfile } from './waveProfile.js';
 import { seaDepthAt } from './bathyLookup.js';
 
@@ -284,6 +284,7 @@ class App {
       const gz = Math.min(ny - 1, Math.max(0, Math.floor(p.z / res)));
       return gz * nx + gx;
     });
+    this.survey.forEach((p, k) => (p.fitsTerrain = surveyFitsTerrain(p, ground[cells[k]])));
     this.sim.setSurveyCells(cells);
     this.updateSurveyPanel();
   }
@@ -304,9 +305,13 @@ class App {
       return;
     }
     const f = (v) => (Number.isFinite(v) ? `${v >= 0 ? '+' : ''}${v.toFixed(1)}m` : '--');
+    const r = (v) => (Number.isFinite(v) ? v.toFixed(1) + 'm' : '--');
+    const c = sum.fits;
     box.innerHTML = en
-      ? `Water reached <b>${sum.reached}/${sum.n}</b> points · within ±2m <b>${sum.within}</b><br>Mean (sim − measured) <b>${f(sum.meanDiff)}</b> · RMSE <b>${Number.isFinite(sum.rmse) ? sum.rmse.toFixed(1) + 'm' : '--'}</b>`
-      : `水が届いた地点 <b>${sum.reached}/${sum.n}</b>・差±2m以内 <b>${sum.within}</b><br>平均の差（計算−実測） <b>${f(sum.meanDiff)}</b>・RMSE <b>${Number.isFinite(sum.rmse) ? sum.rmse.toFixed(1) + 'm' : '--'}</b>`;
+      ? `<b>Points matching today's terrain</b> (${c.n}): water reached <b>${c.reached}</b> · within ±2m <b>${c.within}</b> · mean <b>${f(c.meanDiff)}</b> · RMSE <b>${r(c.rmse)}</b><br>`
+        + `All ${sum.n} points: reached ${sum.reached} · within ±2m ${sum.within} · mean ${f(sum.meanDiff)} · RMSE ${r(sum.rmse)}`
+      : `<b>地形が今と矛盾しない地点</b>（${c.n}）: 水が届いた <b>${c.reached}</b>・差±2m以内 <b>${c.within}</b>・平均の差 <b>${f(c.meanDiff)}</b>・RMSE <b>${r(c.rmse)}</b><br>`
+        + `全 ${sum.n} 地点: 届いた ${sum.reached}・±2m以内 ${sum.within}・平均の差 ${f(sum.meanDiff)}・RMSE ${r(sum.rmse)}`;
   }
 
   /** 2011 actual inundation, 100 m mesh (復興支援調査アーカイブ). */

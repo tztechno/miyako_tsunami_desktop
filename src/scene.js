@@ -229,8 +229,9 @@ export class TsunamiScene {
     const isMiyako = this.terrain?.name === 'miyako_port';
     // Town/port center: near originE + 2900m for Miyako, originE + 2000m for Taro
     const townX = -W / 2 + (isMiyako ? 2900 : 2000);
-    const t = new THREE.Vector3(townX, 10, 0);
-    let p = new THREE.Vector3(townX + 1500, 1500, 2200);
+    const townZ = this.townZ();
+    const t = new THREE.Vector3(townX, 10, townZ);
+    let p = new THREE.Vector3(townX + 1500, 1500, townZ + 2200);
 
     if (type === 'viewBird') {
       // Whole area bird-eye view from above the bay (shows coastal town and offshore wave source)
@@ -238,16 +239,16 @@ export class TsunamiScene {
       t.set(500, 0, 0);
     } else if (type === 'viewCoast') {
       // Near-offshore looking west at the town and historic seawall
-      p.set(townX + 1600, 320, 650);
-      t.set(townX + 100, 10, -50);
+      p.set(townX + 1600, 320, townZ + 650);
+      t.set(townX + 100, 10, townZ - 50);
     } else if (type === 'viewTown') {
       // Close-up on the town and seawall
-      p.set(townX - 450, 220, 420);
-      t.set(townX + 150, 20, -50);
+      p.set(townX - 450, 220, townZ + 420);
+      t.set(townX + 150, 20, townZ - 50);
     } else if (type === 'viewOffshore') {
       // Behind offshore wave source zone (X ~ W/2) looking west toward the coast
-      p.set(W / 2 + 350, 1100, 1200);
-      t.set(townX + 500, 30, 0);
+      p.set(W / 2 + 350, 1100, townZ + 1200);
+      t.set(townX + 500, 30, townZ);
     } else if (type === 'viewSource') {
       if (this.csvSourceXZ) {
         // Wave CSV point (often ~20 km offshore): look out to it from behind the region, region in the foreground
@@ -261,14 +262,24 @@ export class TsunamiScene {
         t.set(1450, 15, -1750);
       } else {
         const srcX = W / 2 - 250;
-        p.set(srcX + 750, 480, 600);
-        t.set(srcX, 15, 0);
+        p.set(srcX + 750, 480, townZ + 600);
+        t.set(srcX, 15, townZ);
       }
     } else if (type === 'viewBackdrop') {
       p.set(2500, 6000, 7000);
       t.set(0, 0, 0);
     }
     this.animateCameraTo(p, t);
+  }
+
+  /**
+   * Scene z of the town (Taro: the seawall, plane N ≈ -28600 m; Miyako Port: the region centre), so the
+   * camera presets follow it when the region's north-south extent changes.
+   */
+  townZ() {
+    const t = this.terrain;
+    if (!t || t.name === 'miyako_port' || t.originN == null) return 0;
+    return t.originN + 28600 - t.H / 2;
   }
 
   animateCameraTo(targetPos, targetLookAt, seconds = 1.0) {
@@ -449,7 +460,7 @@ export class TsunamiScene {
     );
     cLight.position.y = 37;
     coastalBuoy.add(cBody, cMast, cLight);
-    coastalBuoy.position.set(townX + (isMiyako ? 350 : 450), 0, isMiyako ? 50 : 0);
+    coastalBuoy.position.set(townX + (isMiyako ? 350 : 450), 0, isMiyako ? 50 : this.townZ());
     rootGroup.add(coastalBuoy);
 
     rootGroup.renderOrder = 4;
@@ -540,7 +551,7 @@ export class TsunamiScene {
     }
     geom.computeVertexNormals();
 
-    this.terrain = { name: meta.name, nx, ny, res, W: nx * res, H: ny * res, ground: groundF32 };
+    this.terrain = { name: meta.name, nx, ny, res, W: nx * res, H: ny * res, originN: meta.originN, ground: groundF32 };
     const mat = new THREE.MeshStandardMaterial({ map: await this.loadTexture(aerialUrl), roughness: 0.85, metalness: 0.05 });
     this.groundMesh = new THREE.Mesh(geom, mat);
     this.groundMesh.receiveShadow = true;
@@ -875,33 +886,39 @@ export class TsunamiScene {
   }
 
   /** Colour survey markers by simulated max water level vs measured; returns the comparison summary. */
+  /** Colour the survey markers and return the agreement for all points and for those matching today's terrain (p.fitsTerrain). */
   updateSurveyComparison(points, surveyMax) {
     if (!this.surveyBalls || !points?.length) return null;
-    let reached = 0, sumDiff = 0, sumSq = 0, within = 0;
+    const acc = () => ({ n: 0, reached: 0, within: 0, sumDiff: 0, sumSq: 0 });
+    const all = acc(), fits = acc();
     points.forEach((p, i) => {
       let col = SURVEY_COLORS.none;
       const sim = surveyMax ? surveyMax[i] : undefined;
+      for (const a of p.fitsTerrain ? [all, fits] : [all]) a.n++;
       if (surveyMax) {
         if (!Number.isFinite(sim)) col = SURVEY_COLORS.miss;
         else {
           const diff = sim - p.h;
-          reached++;
-          sumDiff += diff;
-          sumSq += diff * diff;
-          if (Math.abs(diff) <= 2) within++;
+          for (const a of p.fitsTerrain ? [all, fits] : [all]) {
+            a.reached++;
+            a.sumDiff += diff;
+            a.sumSq += diff * diff;
+            if (Math.abs(diff) <= 2) a.within++;
+          }
           col = diff > 2 ? SURVEY_COLORS.high : diff < -2 ? SURVEY_COLORS.low : SURVEY_COLORS.ok;
         }
       }
       this.surveyBalls.setColorAt(i, col);
     });
     this.surveyBalls.instanceColor.needsUpdate = true;
-    return {
-      n: points.length,
-      reached,
-      within,
-      meanDiff: reached ? sumDiff / reached : NaN,
-      rmse: reached ? Math.sqrt(sumSq / reached) : NaN,
-    };
+    const out = (a) => ({
+      n: a.n,
+      reached: a.reached,
+      within: a.within,
+      meanDiff: a.reached ? a.sumDiff / a.reached : NaN,
+      rmse: a.reached ? Math.sqrt(a.sumSq / a.reached) : NaN,
+    });
+    return { ...out(all), fits: out(fits) };
   }
 
   setPin(worldX, worldZ, elevation) {

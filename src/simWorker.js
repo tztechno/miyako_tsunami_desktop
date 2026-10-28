@@ -3,7 +3,7 @@
  * Posts downsampled render frames (eta / depth / foam) plus stats; frame buffers are
  * recycled between threads to avoid per-frame allocations.
  */
-import { TsunamiSimulator } from './tsunamiSim.js';
+import { TsunamiSimulator, surveyWaterLevel } from './tsunamiSim.js';
 import { WaveProfile } from './waveProfile.js';
 
 const FRAME_BUDGET_MS = 30; // wall time spent stepping between posted frames
@@ -101,9 +101,7 @@ function post(reqId, force = false) {
   if (surveyCells) {
     surveyMax = new Float32Array(surveyCells.length);
     for (let k = 0; k < surveyCells.length; k++) {
-      const c = surveyCells[k];
-      const md = sim.maxDepth[c];
-      surveyMax[k] = sim.ground[c] >= 0 && md < 0.05 ? NaN : sim.ground[c] + md;
+      surveyMax[k] = surveyWaterLevel(sim.ground, sim.maxDepth, sim.nx, sim.ny, surveyCells[k]);
     }
   }
   self.postMessage(

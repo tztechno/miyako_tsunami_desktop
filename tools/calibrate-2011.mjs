@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TsunamiSimulator } from '../src/tsunamiSim.js';
+import { TsunamiSimulator, surveyWaterLevel, surveyFitsTerrain } from '../src/tsunamiSim.js';
 import { TSUNAMI_SCENARIOS } from '../src/scenarios.js';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -42,16 +42,32 @@ sim.advance(Number(minutes) * 60);
 
 const cells = survey.map((p) => Math.floor(p.z / meta.res) * meta.nx + Math.floor(p.x / meta.res));
 let reached = 0, within = 0, sum = 0, sq = 0;
+// the same for the points that agree with today's terrain (surveyFitsTerrain)
+const fit = { points: 0, reached: 0, within2m: 0, sum: 0, sq: 0 };
 for (let k = 0; k < survey.length; k++) {
-  const c = cells[k];
-  const md = sim.maxDepth[c];
-  if (ground[c] >= 0 && md < 0.05) continue;
-  const diff = ground[c] + md - survey[k].h;
+  const fits = surveyFitsTerrain(survey[k], ground[cells[k]]);
+  if (fits) fit.points++;
+  const level = surveyWaterLevel(ground, sim.maxDepth, meta.nx, meta.ny, cells[k]);
+  if (Number.isNaN(level)) continue;
+  const diff = level - survey[k].h;
   reached++;
   sum += diff;
   sq += diff * diff;
   if (Math.abs(diff) <= 2) within++;
+  if (fits) {
+    fit.reached++;
+    fit.sum += diff;
+    fit.sq += diff * diff;
+    if (Math.abs(diff) <= 2) fit.within2m++;
+  }
 }
+const terrainConsistent = {
+  points: fit.points,
+  reached: fit.reached,
+  within2m: fit.within2m,
+  meanDiff: +(fit.sum / fit.reached).toFixed(2),
+  rmse: +Math.sqrt(fit.sq / fit.reached).toFixed(2),
+};
 // 5 m mesh agreement (land cells surveyed in the 復興支援調査 5 m inundation mesh)
 const meshFile = path.join(dir, 'inund2011_5m.bin');
 let mesh5 = null;
@@ -91,6 +107,7 @@ const res = {
   within2m: within,
   meanDiff: +(sum / reached).toFixed(2),
   rmse: +Math.sqrt(sq / reached).toFixed(2),
+  terrainConsistent,
   maxRunup: +sim.stats.maxRunup.toFixed(1),
   inundatedHa: +sim.stats.inundatedAreaHa.toFixed(1),
 };

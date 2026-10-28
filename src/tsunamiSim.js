@@ -100,6 +100,38 @@ export function shoalingFactor(sourceDepth, edgeDepth) {
   return sourceDepth > 0 && edgeDepth > 0 ? (sourceDepth / edgeDepth) ** 0.25 : 1;
 }
 
+/**
+ * Simulated max water level (m) to compare with a surveyed 2011 height at grid cell `cell`. When that cell
+ * stayed dry, the highest level among wet cells within `radius` cells (default 3 = 15 m) is used: survey marks
+ * are often on building walls (buildings are solid in the model, so their cells never get wet) or at the very
+ * edge of the water. NaN when no water came within the radius.
+ */
+export function surveyWaterLevel(ground, maxDepth, nx, ny, cell, radius = 3) {
+  const wet = (i) => ground[i] < 0 || maxDepth[i] >= 0.05;
+  if (wet(cell)) return ground[cell] + maxDepth[cell];
+  const cx = cell % nx, cy = (cell - cx) / nx;
+  let best = NaN;
+  for (let y = Math.max(0, cy - radius); y <= Math.min(ny - 1, cy + radius); y++) {
+    for (let x = Math.max(0, cx - radius); x <= Math.min(nx - 1, cx + radius); x++) {
+      if ((x - cx) ** 2 + (y - cy) ** 2 > radius * radius) continue;
+      const i = y * nx + x;
+      if (wet(i) && !(ground[i] + maxDepth[i] <= best)) best = ground[i] + maxDepth[i];
+    }
+  }
+  return best;
+}
+
+/**
+ * Does a 2011 survey point agree with today's terrain (DEM5A)? Comparing at points where the ground has
+ * changed since (cut / fill, reconstruction) or where the mark's position is off is meaningless.
+ *   I (inundation height): the ground must be below the measured water level.
+ *   R (run-up height = ground level where the water stopped): the ground must be within ±3 m of it.
+ * groundZ is the DEM elevation at the point's cell.
+ */
+export function surveyFitsTerrain(point, groundZ) {
+  return point.type === 'R' ? Math.abs(groundZ - point.h) <= 3 : groundZ < point.h;
+}
+
 export class TsunamiSimulator {
   constructor({ meta, ground, seawallManager, buildings = [] }) {
     this.meta = meta;

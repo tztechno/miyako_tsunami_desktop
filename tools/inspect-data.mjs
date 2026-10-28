@@ -3,10 +3,7 @@ import path from 'node:path';
 import { fromFile } from 'geotiff';
 
 async function inspectTif() {
-  let tifPath = path.resolve('../miyako.tif');
-  if (!fs.existsSync(tifPath)) {
-    tifPath = path.resolve('../DOCS/miyako.tif');
-  }
+  const tifPath = path.resolve('../miyako.tif');
   if (!fs.existsSync(tifPath)) {
     console.log('miyako.tif not found at', tifPath);
     return;

@@ -3,23 +3,23 @@
   "label": "田老地区（旧田老防潮堤）",
   "label_en": "Taro District (Historic Seawall)",
   "nx": 1600,
-  "ny": 800,
+  "ny": 1000,
   "res": 5,
   "crs": "EPSG:6678",
   "originE": 95600,
-  "originN": -26600,
+  "originN": -25600,
   "center": {
-    "lat": 39.7368,
+    "lat": 39.7413,
     "lon": 141.972
   },
   "widthM": 8000,
-  "heightM": 4000,
+  "heightM": 5000,
   "groundMin": -111.93670250830564,
-  "groundMax": 314.7438920632068,
+  "groundMax": 423.7180133877082,
   "aerial": {
     "width": 1600,
-    "height": 800
+    "height": 1000
   },
   "demSource": "GSI DEM5A/DEM10B (land) + japan.tif 15 arc-second bathymetry (sea)",
-  "built": "2026-10-21T07:27:14.624Z"
+  "built": "2026-10-28T06:23:24.835Z"
 }

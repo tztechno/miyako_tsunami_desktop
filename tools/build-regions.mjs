@@ -17,12 +17,12 @@ const REGIONS = [
     name: 'taro',
     label: '田老地区（旧田老防潮堤）',
     label_en: 'Taro District (Historic Seawall)',
-    lat: 39.7368,
+    lat: 39.7413,
     lon: 141.9720,
     originE: 95600,
-    originN: -26600,
+    originN: -25600,
     widthM: 8000, // 8km East-West: expanded 4km further offshore to observe incoming tsunami waves
-    heightM: 4000, // 4km North-South
+    heightM: 5000, // 5km North-South: 1km further north so the cove north of Taro is clear of the open boundary
     res: 5,
     zoomAerial: 15,
   },
