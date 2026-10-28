@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { toPlane } from './proj.js';
 import { getLang } from './i18n.js';
+import { entryPath } from './tsunamiSim.js';
 
 export class LabelManager {
   constructor(container, meta) {
@@ -97,15 +98,13 @@ export class LabelManager {
     const [e, n] = toPlane(profile.lon, profile.lat);
     const x = e - originE - (nx * res) / 2;
     const z = originN - n - (ny * res) / 2;
-    const ex = Math.max(-(nx * res) / 2, Math.min((nx * res) / 2, x));
-    const ez = Math.max(-(ny * res) / 2, Math.min((ny * res) / 2, z));
-    const km = (Math.hypot(x - ex, z - ez) / 1000).toFixed(1);
+    const km = (entryPath(this.meta, x, z).length / 1000).toFixed(1);
     const where = profile.location || profile.filename || '';
     const label = {
       id: 'csv_source',
       category: 'warning',
-      name: `📡 波源CSV地点 ${where}（計算域まで約${km}km）`,
-      name_en: `📡 Wave CSV point ${where} (~${km} km to model edge)`,
+      name: `📡 波源CSV地点 ${where}（流入口まで約${km}km）`,
+      name_en: `📡 Wave CSV point ${where} (~${km} km to the inflow edge)`,
     };
     const el = document.createElement('div');
     el.className = 'map-3d-label category-warning';

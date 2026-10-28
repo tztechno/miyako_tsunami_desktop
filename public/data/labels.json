@@ -73,19 +73,19 @@
   },
   {
     "id": "miyako_wave_source",
-    "name": "🚨 津波発生境界（東端 宮古湾外洋約5km）",
-    "name_en": "🚨 Wave Source Zone (Miyako Outer ~5km)",
-    "lat": 39.6410,
-    "lon": 142.0400,
+    "name": "🚨 津波流入境界（北端 宮古湾口）",
+    "name_en": "🚨 Wave Inflow Boundary (Miyako Bay Mouth, North Edge)",
+    "lat": 39.6577,
+    "lon": 141.9965,
     "category": "warning",
     "region": "miyako_port"
   },
   {
     "id": "miyako_offshore_buoy",
-    "name": "📍 沖合波源観測点 (東端 4.8km)",
-    "name_en": "📍 Offshore Wave Station (4.8km)",
-    "lat": 39.6410,
-    "lon": 142.0360,
+    "name": "📍 湾口観測点",
+    "name_en": "📍 Bay Mouth Wave Station",
+    "lat": 39.6555,
+    "lon": 141.9935,
     "category": "station",
     "region": "miyako_port"
   },

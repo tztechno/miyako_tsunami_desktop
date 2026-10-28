@@ -29,16 +29,62 @@ export function offshoreWaveEta(t, { waveHeight, wavePeriod, hasPreDrawdown }) {
 }
 
 /**
- * Centre of the wave source zone in scene coordinates (m from the region centre; x east, z south).
- * Taro: offshore near the east edge; Miyako Port: Miyako Bay entrance (deep water off the Omoe Peninsula).
+ * Wave source of a region: where a wave from offshore enters it. Scene coordinates are m from the region
+ * centre (x east, z south).
+ *   center:      centre of the source zone
+ *   edges:       inflow edges
+ *   walls:       closed edges (no flux). Other sea edges are held at still water, so water flows out freely.
+ *   directionDeg: bearing the wave comes from at those edges for CSV scenarios (null = the CSV's own direction)
+ *   via:         where a wave from east of the region passes on its way in (null = straight to the nearest edge)
+ *
+ * Taro faces the open Pacific on the east, north and south.
+ * Miyako Port: Miyako Bay opens only to the north. The sea along the east edge is the outer coast of the Omoe
+ * Peninsula and the south edge cuts through the inner bay, so a wave from offshore reaches the port only
+ * around the north tip of the peninsula (at the region's NE corner) and through the bay mouth. The east edge
+ * is a wall; the inner bay stays open (2011 CSV vs the 89 surveyed heights: RMSE 5.4 m open, 10.5 m as a wall).
  */
+export function regionSource(meta) {
+  const halfW = (meta.nx * meta.res) / 2;
+  const halfH = (meta.ny * meta.res) / 2;
+  if (meta.name === 'miyako_port') {
+    return { center: { x: 1450, z: -1750 }, edges: ['north'], walls: ['east'], directionDeg: 50, via: { x: halfW + 1000, z: -halfH - 750 } };
+  }
+  return { center: { x: halfW - 250, z: 0 }, edges: ['east', 'north', 'south'], walls: [], directionDeg: null, via: null };
+}
+
+/** Centre of the wave source zone (see regionSource). */
 export function sourceZoneCenter(meta) {
-  const W = meta.nx * meta.res;
-  return meta.name === 'miyako_port' ? { x: 1450, z: -1750 } : { x: W / 2 - 250, z: 0 };
+  return regionSource(meta).center;
+}
+
+/** Edges where the offshore wave enters the region (see regionSource). */
+export function inflowEdges(meta) {
+  return regionSource(meta).edges;
 }
 
 /**
- * Open-sea boundary cells (east columns, north/south rows), their arrival delays and forcing weights, and the
+ * Route (scene x/z points) from an offshore point such as a CSV location to where its wave enters the region,
+ * and its length (m): through regionSource().via to the edge next to the source zone, or straight to the
+ * nearest edge.
+ */
+export function entryPath(meta, x, z) {
+  const halfW = (meta.nx * meta.res) / 2;
+  const halfH = (meta.ny * meta.res) / 2;
+  const src = regionSource(meta);
+  const pts = [{ x, z }];
+  if (src.via) {
+    if (x > halfW) pts.push(src.via);
+    pts.push({ x: src.center.x, z: -halfH });
+  } else {
+    pts.push({ x: Math.max(-halfW, Math.min(halfW, x)), z: Math.max(-halfH, Math.min(halfH, z)) });
+  }
+  let length = 0;
+  for (let k = 1; k < pts.length; k++) length += Math.hypot(pts[k].x - pts[k - 1].x, pts[k].z - pts[k - 1].z);
+  return { pts, length };
+}
+
+/**
+ * Open-sea boundary cells (inflowEdges: east columns, north/south rows), their arrival delays and forcing weights, and the
  * representative depth of the forced edge. directionDeg is the bearing the wave comes FROM (90 = east).
  * sourceWidthM limits the forcing to boundary cells within ±width/2 of the source zone centre, measured along
  * the wave crest. The source zone is where a wave from a distant earthquake enters the region, not the
@@ -48,14 +94,19 @@ export function sourceZoneCenter(meta) {
  */
 export function openBoundary(meta, ground, directionDeg, sourceWidthM, maxSeaDepth) {
   const { nx, ny, res } = meta;
+  const edges = inflowEdges(meta);
   const cells = [];
-  for (let y = 0; y < ny; y++) {
-    if (ground[y * nx + nx - 1] < 0) cells.push(y * nx + nx - 1);
-    if (ground[y * nx + nx - 2] < -5) cells.push(y * nx + nx - 2);
+  if (edges.includes('east')) {
+    for (let y = 0; y < ny; y++) {
+      if (ground[y * nx + nx - 1] < 0) cells.push(y * nx + nx - 1);
+      if (ground[y * nx + nx - 2] < -5) cells.push(y * nx + nx - 2);
+    }
   }
-  for (let x = 0; x < nx - 2; x++) {
-    if (ground[x] < -5) cells.push(x);
-    if (ground[(ny - 1) * nx + x] < -5) cells.push((ny - 1) * nx + x);
+  // without the east edge, the north/south rows run to the corner
+  const xEnd = edges.includes('east') ? nx - 2 : nx;
+  for (let x = 0; x < xEnd; x++) {
+    if (edges.includes('north') && ground[x] < -5) cells.push(x);
+    if (edges.includes('south') && ground[(ny - 1) * nx + x] < -5) cells.push((ny - 1) * nx + x);
   }
   const th = (directionDeg * Math.PI) / 180;
   const kE = -Math.sin(th); // propagation direction (east, north components)
@@ -144,6 +195,9 @@ export class TsunamiSimulator {
 
     const N = this.nx * this.ny;
     this.N = N;
+    // Closed edges (regionSource); an inflow east edge is two columns wide
+    this.eastOpen = inflowEdges(meta).includes('east');
+    this.walls = regionSource(meta).walls;
 
     // Simulation fields
     this.eta = new Float32Array(N); // Water surface elevation (m)
@@ -545,6 +599,13 @@ export class TsunamiSimulator {
       }
     }
 
+    // 3a. Closed edges (see regionSource)
+    for (const wall of this.walls) {
+      if (wall === 'east') for (let y = 0; y < ny; y++) this.qx[y * nx + nx - 2] = 0;
+      else if (wall === 'north') for (let x = 0; x < nx; x++) this.qy[x] = 0;
+      else for (let x = 0; x < nx; x++) this.qy[(ny - 2) * nx + x] = 0;
+    }
+
     // 3b. Positivity limiter: a cell may not discharge more water than it holds in one step.
     // Without this, over-draining produces negative depths that get clamped to 0 (mass creation)
     // and grows into unphysical spikes of tens of metres.
@@ -552,7 +613,7 @@ export class TsunamiSimulator {
     for (let y = 0; y < ny; y++) {
       for (let x = 0; x < nx; x++) {
         const i = y * nx + x;
-        const fixed = x === 0 || x === nx - 1 || y === 0 || y === ny - 1 || (x >= nx - 2 && this.ground[i] < -5);
+        const fixed = x === 0 || x === nx - 1 || y === 0 || y === ny - 1 || (this.eastOpen && x >= nx - 2 && this.ground[i] < -5);
         if (fixed) { scale[i] = 1; continue; }
         let out = 0;
         if (x < nx - 1 && this.qx[i] > 0) out += this.qx[i];
@@ -588,7 +649,7 @@ export class TsunamiSimulator {
         const i = y * nx + x;
 
         // Skip fixed eastern ocean boundary cells
-        if (x >= nx - 2 && this.ground[i] < -5) continue;
+        if (this.eastOpen && x >= nx - 2 && this.ground[i] < -5) continue;
 
         const qx_in = this.qx[y * nx + (x - 1)];
         const qx_out = this.qx[i];

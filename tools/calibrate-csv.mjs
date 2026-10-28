@@ -1,14 +1,15 @@
 // Compare a run driven by a wave CSV (e.g. nankai_trough's 2011 output) with the 59 surveyed 2011 heights in Taro.
-// usage: node tools/calibrate-csv.mjs <csv> [multiplier] [simMinutes] [region]
+// usage: node tools/calibrate-csv.mjs <csv> [multiplier] [simMinutes] [region] [directionDeg]
+// directionDeg defaults to what the app uses: the region's source direction (regionSource), else the CSV's.
 // The boundary level is CSV × automatic shoaling correction (depth at the CSV point → edge) × multiplier, as in the app.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TsunamiSimulator, surveyWaterLevel, surveyFitsTerrain } from '../src/tsunamiSim.js';
+import { TsunamiSimulator, surveyWaterLevel, surveyFitsTerrain, regionSource } from '../src/tsunamiSim.js';
 import { WaveProfile } from '../src/waveProfile.js';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const [csvPath, kArg = '1', minutes = '40', region = 'taro'] = process.argv.slice(2);
+const [csvPath, kArg = '1', minutes = '40', region = 'taro', dirArg] = process.argv.slice(2);
 // serve the bathymetry grid to bathyLookup's fetch from disk
 globalThis.fetch = async (u) => {
   const p = path.join(appRoot, 'public', u);
@@ -45,7 +46,8 @@ for (const s of sw) {
 const prof = WaveProfile.parse(fs.readFileSync(csvPath, 'utf8'), path.basename(csvPath));
 prof.sourceDepth = await seaDepthAt(prof.lon, prof.lat);
 const sim = new TsunamiSimulator({ meta, ground, seawallManager: { barrierGrid, barrierActive }, buildings });
-sim.setScenario({ waveHeight: prof.peakHeight, periodSec: 600, directionDeg: prof.dominantDirectionDeg, waveProfile: prof });
+const directionDeg = Number(dirArg) || regionSource(meta).directionDeg || prof.dominantDirectionDeg;
+sim.setScenario({ waveHeight: prof.peakHeight, periodSec: 600, directionDeg, waveProfile: prof });
 sim.setCustomWave({ profileScale: Number(kArg) });
 sim.advance(Number(minutes) * 60);
 sim.updateStats();
@@ -82,7 +84,7 @@ console.log(JSON.stringify({
   csv: path.basename(csvPath),
   sourceDepth: +prof.sourceDepth?.toFixed(0),
   edgeDepth: +sim.bcDepth.toFixed(0),
-  directionFrom: prof.dominantDirectionDeg,
+  directionFrom: directionDeg,
   shoaling: +sim.shoalFactor.toFixed(3),
   multiplier: Number(kArg),
   total: +(sim.shoalFactor * Number(kArg)).toFixed(3),

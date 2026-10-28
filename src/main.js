@@ -8,7 +8,7 @@ import { recordVideo, makeCameraPath } from './recorder.js';
 import { t, setLang, getLang } from './i18n.js';
 import { toLonLat } from './proj.js';
 import { buildBatchZip, waveCrests } from './batchExport.js';
-import { offshoreWaveEta, openBoundary, shoalingFactor, surveyFitsTerrain } from './tsunamiSim.js';
+import { offshoreWaveEta, openBoundary, shoalingFactor, surveyFitsTerrain, regionSource } from './tsunamiSim.js';
 import { WaveProfile } from './waveProfile.js';
 import { seaDepthAt } from './bathyLookup.js';
 
@@ -469,7 +469,10 @@ class App {
 
   async applyScenario(sc) {
     this.setSimulating(false);
-    const deg = (sc.directionDegByRegion && sc.directionDegByRegion[this.currentRegion]) || sc.directionDeg;
+    // CSV scenarios: the region's own source direction (Miyako Port: into the bay mouth) unless the scenario sets one
+    const deg = sc.directionDegByRegion?.[this.currentRegion]
+      || (sc.isCsvWave && regionSource(this.regionMeta).directionDeg)
+      || sc.directionDeg;
 
     // Load CSV wave profile if this scenario is driven by a CSV file
     if (sc.isCsvWave) {

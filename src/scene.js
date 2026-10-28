@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { toPlane } from './proj.js';
-import { sourceZoneCenter } from './tsunamiSim.js';
+import { sourceZoneCenter, entryPath } from './tsunamiSim.js';
 
 const PIN_SCREEN_SCALE = 0.006; // pin height ≈ 18px regardless of zoom
 
@@ -487,7 +487,7 @@ export class TsunamiScene {
 
   /**
    * Marker at the point where a wave CSV was sampled (e.g. nankai_trough "Lon/Lat" header), usually outside
-   * the computed region, with a dashed line to the nearest edge of the region where the wave enters.
+   * the computed region, with a dashed line along the route to where the wave enters the region (entryPath).
    * Drawn without fog so it stays visible ~20 km away.
    */
   setCsvSource(meta, profile) {
@@ -503,9 +503,7 @@ export class TsunamiScene {
     if (!meta || !profile || profile.lon == null || profile.lat == null) return;
 
     const { x, z } = this.lonLatToScene(meta, profile.lon, profile.lat);
-    const halfW = (meta.nx * meta.res) / 2;
-    const halfH = (meta.ny * meta.res) / 2;
-    const edge = { x: Math.max(-halfW, Math.min(halfW, x)), z: Math.max(-halfH, Math.min(halfH, z)) };
+    const path = entryPath(meta, x, z).pts;
     const group = new THREE.Group();
 
     const pillarH = 1200;
@@ -520,7 +518,7 @@ export class TsunamiScene {
     );
     ring.position.set(x, 2, z);
     const line = new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x, 20, z), new THREE.Vector3(edge.x, 20, edge.z)]),
+      new THREE.BufferGeometry().setFromPoints(path.map((p) => new THREE.Vector3(p.x, 20, p.z))),
       new THREE.LineDashedMaterial({ color: 0xffeb3b, dashSize: 300, gapSize: 200, fog: false })
     );
     line.computeLineDistances();
