@@ -874,6 +874,29 @@ input[type="range"] {
   font-family: 'SF Mono', 'Roboto Mono', monospace;
 }
 
+/* Multiplier on the CSV waveform */
+.csv-scale-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.csv-scale-row span:first-child {
+  flex: 1;
+}
+.csv-scale-row input {
+  width: 64px;
+  padding: 2px 4px;
+  font-family: 'SF Mono', 'Roboto Mono', monospace;
+  font-size: 11px;
+  color: var(--text-bright);
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--bg-panel-border);
+  border-radius: 4px;
+}
+
 /* Artificial Wave Controls */
 .pulse-wave-box {
   margin-top: 10px;

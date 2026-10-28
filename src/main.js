@@ -8,8 +8,9 @@ import { recordVideo, makeCameraPath } from './recorder.js';
 import { t, setLang, getLang } from './i18n.js';
 import { toLonLat } from './proj.js';
 import { buildBatchZip, waveCrests } from './batchExport.js';
-import { offshoreWaveEta } from './tsunamiSim.js';
+import { offshoreWaveEta, openBoundary, shoalingFactor } from './tsunamiSim.js';
 import { WaveProfile } from './waveProfile.js';
+import { seaDepthAt } from './bathyLookup.js';
 
 const RENDER_STEP = 2; // water mesh = every 2nd sim cell (10 m)
 const $ = (id) => document.getElementById(id);
@@ -60,6 +61,11 @@ class App {
 
     // Wave profile from CSV (nankai_trough or user import)
     this.activeWaveProfile = null;
+    // Multiplier on the CSV waveform (kept across CSV scenarios and regions; shown in the CSV badge)
+    this.csvScale = 1;
+    // Width of the wave source along the crest (m). The source is where a wave from a distant earthquake
+    // enters the region, not the epicentre; the wave height is uniform across it. Kept across scenarios and regions.
+    this.sourceWidthM = 100000;
     this.isPulseMode = false;
 
     this.init();
@@ -474,7 +480,10 @@ class App {
         }
       }
       if (sc.waveProfile) {
-        this.activeWaveProfile = sc.waveProfile;
+        const prof = sc.waveProfile;
+        // Depth at the CSV point (japan.tif) for the shoaling correction to the edge of the region
+        if (prof.sourceDepth == null && prof.lon != null) prof.sourceDepth = await seaDepthAt(prof.lon, prof.lat);
+        this.activeWaveProfile = prof;
         this.showCsvMetadataBadge(sc.waveProfile);
         sc.waveHeight = sc.waveProfile.peakHeight;
         sc.durationMin = Math.ceil(sc.waveProfile.durationSec / 60);
@@ -502,8 +511,59 @@ class App {
       waveProfile: this.activeWaveProfile,
     };
     $('batch-minutes').value = sc.durationMin || 30;
+    this.setSourceWidth(this.sourceWidthM);
+    if (this.activeWaveProfile) this.setCsvScale(this.csvScale);
     this.drawWavePreview();
     this.updateHUD();
+  }
+
+  /** Limit the wave source to widthM along the crest; redraws the source frame. */
+  setSourceWidth(widthM) {
+    this.sourceWidthM = widthM;
+    this.sim.setCustomWave({ sourceWidthM: widthM });
+    this.scene.buildSourceZone(this.regionMeta, parseFloat($('input-wave-dir').value) || 90, widthM);
+    this.scene.setSourceZoneVisible($('chk-sourcezone').checked);
+    $('input-source-width').value = widthM / 1000;
+    $('val-source-width').textContent = `${(widthM / 1000).toFixed(1)} km`;
+    if (this.activeWaveProfile) this.setCsvScale(this.csvScale); // the forced edge, so its depth, changed
+  }
+
+  /**
+   * Green's law factor from the CSV point to the forced edge of the region for the current direction and
+   * source width (the simulator computes the same in setupBoundary). Shown in the CSV badge.
+   */
+  updateCsvShoal() {
+    const prof = this.activeWaveProfile;
+    const deg = parseFloat($('input-wave-dir').value) || 90;
+    const b = openBoundary(this.regionMeta, this.groundF32, deg, this.sourceWidthM, 20);
+    const factor = shoalingFactor(prof.sourceDepth, b.depth);
+    $('csv-meta-shoal').textContent = prof.sourceDepth > 0
+      ? `×${factor.toFixed(2)} (${prof.sourceDepth.toFixed(0)}m→${b.depth.toFixed(0)}m)`
+      : t('csvShoalUnknown');
+    this.csvShoal = factor;
+    return factor;
+  }
+
+  /**
+   * Multiply the CSV waveform by the user's factor k on top of the automatic shoaling correction:
+   * boundary level = CSV × shoaling × k. The boundary, the height slider/label and the preview follow.
+   */
+  setCsvScale(k) {
+    const prof = this.activeWaveProfile;
+    if (!prof || !Number.isFinite(k)) return;
+    k = Math.min(10, Math.max(0.1, k));
+    this.csvScale = k;
+    const total = this.updateCsvShoal() * k;
+    const h = prof.peakHeight * total;
+    this.sim.setCustomWave({ profileScale: k });
+    if (this.waveParams) {
+      this.waveParams.waveHeight = h;
+      this.waveParams.profileScale = total; // what multiplies the CSV at the boundary (preview, batch crests)
+    }
+    $('input-csv-scale').value = k.toFixed(2);
+    $('input-wave-height').value = Math.min(25, h);
+    $('val-wave-height').textContent = `${h.toFixed(1)}m`;
+    this.drawWavePreview();
   }
 
   /** Offshore boundary waveform over the batch duration, with each crest marked. */
@@ -519,7 +579,7 @@ class App {
     // 1. If activeWaveProfile is loaded (nankai_trough or imported CSV), draw real wave curve
     if (this.activeWaveProfile) {
       const prof = this.activeWaveProfile;
-      const scale = prof.peakHeight > 0 ? (this.waveParams?.waveHeight ?? prof.peakHeight) / prof.peakHeight : 1;
+      const scale = this.waveParams?.profileScale ?? 1;
       const maxAbs = Math.max(1, prof.peakHeight * scale, Math.abs(prof.troughHeight * scale)) * 1.25;
       const X = (t) => 8 + (t / dur) * (w - 16);
       const Y = (e) => h / 2 - (e / maxAbs) * (h / 2 - 10);
@@ -662,6 +722,13 @@ class App {
           [L('地域', 'Region'), $('select-region').selectedOptions[0].textContent],
           [L('津波シナリオ', 'Scenario'), $('select-scenario').selectedOptions[0].textContent],
           [L('沖合の波高 (m)', 'Offshore wave height (m)'), this.waveParams.waveHeight],
+          ...(this.activeWaveProfile
+            ? [
+                [L('浅水補正 (グリーンの法則)', "Shoaling correction (Green's law)"), $('csv-meta-shoal').textContent],
+                [L('CSV波形の倍率', 'CSV wave multiplier'), this.csvScale],
+              ]
+            : []),
+          [L('波源の幅 (km)', 'Source width (km)'), this.sourceWidthM / 1000],
           [L('周期 (秒)', 'Period (s)'), this.waveParams.wavePeriod],
           [L('来襲方向', 'Wave coming from'), $('val-wave-dir').textContent],
           [L('防潮堤', 'Seawall'), `${sw.selectedOptions[0]?.textContent || sw.value} / ${L('天端', 'crest')} ${$('input-seawall-height').value}m`],
@@ -766,6 +833,12 @@ class App {
 
     $('input-wave-height').addEventListener('input', (e) => {
       const h = parseFloat(e.target.value);
+      if (this.activeWaveProfile) {
+        // With a CSV the height slider is another way to set the multiplier (target peak / corrected CSV peak)
+        const peak = this.activeWaveProfile.peakHeight * (this.csvShoal ?? 1);
+        if (peak > 0) this.setCsvScale(h / peak);
+        return;
+      }
       $('val-wave-height').textContent = `${h.toFixed(1)}m`;
       this.sim.setCustomWave({ height: h });
       if (this.waveParams) {
@@ -776,12 +849,17 @@ class App {
       if (!this.activeWaveProfile) selScenario.value = 'custom';
     });
 
+    $('input-source-width').addEventListener('input', (e) => {
+      this.setSourceWidth(parseFloat(e.target.value) * 1000);
+    });
+
     $('input-wave-dir').addEventListener('input', (e) => {
       const deg = parseFloat(e.target.value);
       this.updateDirLabel(deg);
       this.scene.updateSourceZoneDirection(deg);
       this.sim.setCustomWave({ direction: deg });
-      if (!this.activeWaveProfile) selScenario.value = 'custom';
+      if (this.activeWaveProfile) this.setCsvScale(this.csvScale); // the forced edge, so its depth, changed
+      else selScenario.value = 'custom';
     });
 
     // Wave Source CSV Import UI & Drag-and-Drop
@@ -987,6 +1065,8 @@ class App {
     const fileInput = $('input-wave-csv');
     const dropZone = $('csv-drop-zone');
     const btnClear = $('btn-csv-clear');
+
+    $('input-csv-scale').addEventListener('change', (e) => this.setCsvScale(parseFloat(e.target.value)));
 
     if (fileInput) {
       fileInput.addEventListener('change', async (e) => {

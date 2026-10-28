@@ -28,6 +28,78 @@ export function offshoreWaveEta(t, { waveHeight, wavePeriod, hasPreDrawdown }) {
   return waveHeight * sech * sech;
 }
 
+/**
+ * Centre of the wave source zone in scene coordinates (m from the region centre; x east, z south).
+ * Taro: offshore near the east edge; Miyako Port: Miyako Bay entrance (deep water off the Omoe Peninsula).
+ */
+export function sourceZoneCenter(meta) {
+  const W = meta.nx * meta.res;
+  return meta.name === 'miyako_port' ? { x: 1450, z: -1750 } : { x: W / 2 - 250, z: 0 };
+}
+
+/**
+ * Open-sea boundary cells (east columns, north/south rows), their arrival delays and forcing weights, and the
+ * representative depth of the forced edge. directionDeg is the bearing the wave comes FROM (90 = east).
+ * sourceWidthM limits the forcing to boundary cells within ±width/2 of the source zone centre, measured along
+ * the wave crest. The source zone is where a wave from a distant earthquake enters the region, not the
+ * epicentre, so the wave has the same height across the whole width. Cells outside stay at still water.
+ * null = no limit (the whole boundary).
+ * depth is the inflow-weighted mean depth Σh²/Σh of the forced cells (deep cells carry most of the inflow).
+ */
+export function openBoundary(meta, ground, directionDeg, sourceWidthM, maxSeaDepth) {
+  const { nx, ny, res } = meta;
+  const cells = [];
+  for (let y = 0; y < ny; y++) {
+    if (ground[y * nx + nx - 1] < 0) cells.push(y * nx + nx - 1);
+    if (ground[y * nx + nx - 2] < -5) cells.push(y * nx + nx - 2);
+  }
+  for (let x = 0; x < nx - 2; x++) {
+    if (ground[x] < -5) cells.push(x);
+    if (ground[(ny - 1) * nx + x] < -5) cells.push((ny - 1) * nx + x);
+  }
+  const th = (directionDeg * Math.PI) / 180;
+  const kE = -Math.sin(th); // propagation direction (east, north components)
+  const kN = -Math.cos(th);
+  const s = cells.map((i) => (i % nx) * res * kE - Math.floor(i / nx) * res * kN);
+  const sMin = Math.min(...s);
+  const c = Math.sqrt(9.80665 * Math.max(5, maxSeaDepth || 20));
+  const delay = Float32Array.from(s, (v) => (v - sMin) / c);
+
+  let weight;
+  if (!(sourceWidthM > 0)) {
+    weight = new Float32Array(cells.length).fill(1);
+  } else {
+    const ctr = sourceZoneCenter(meta);
+    const cE = (nx * res) / 2 + ctr.x;
+    const cN = -((ny * res) / 2 + ctr.z);
+    const half = sourceWidthM / 2;
+    weight = Float32Array.from(cells, (i) => {
+      // distance from the centre line along the crest (perpendicular to the propagation direction)
+      const dE = ((i % nx) + 0.5) * res - cE;
+      const dN = -(Math.floor(i / nx) + 0.5) * res - cN;
+      return Math.abs(dE * Math.cos(th) - dN * Math.sin(th)) <= half ? 1 : 0;
+    });
+  }
+
+  let h1 = 0, h2 = 0;
+  cells.forEach((i, k) => {
+    const h = -ground[i];
+    if (weight[k] > 0 && h > 0) {
+      h1 += h;
+      h2 += h * h;
+    }
+  });
+  return { cells: Int32Array.from(cells), delay, weight, depth: h1 > 0 ? h2 / h1 : 0 };
+}
+
+/**
+ * Green's law amplitude factor for a wave recorded at sourceDepth (the CSV point) and fed in at edgeDepth:
+ * (h_source / h_edge)^(1/4). 1 when either depth is unknown.
+ */
+export function shoalingFactor(sourceDepth, edgeDepth) {
+  return sourceDepth > 0 && edgeDepth > 0 ? (sourceDepth / edgeDepth) ** 0.25 : 1;
+}
+
 export class TsunamiSimulator {
   constructor({ meta, ground, seawallManager, buildings = [] }) {
     this.meta = meta;
@@ -178,12 +250,20 @@ export class TsunamiSimulator {
     this.waveProfile = null;
   }
 
-  /** Slider changes. With a CSV profile the waveform is kept: height scales it, direction only turns the incoming plane wave. */
-  setCustomWave({ height, period, direction }) {
+  /**
+   * Slider changes. With a CSV profile the waveform is kept: profileScale (or height / CSV peak) multiplies it,
+   * direction only turns the incoming plane wave.
+   */
+  setCustomWave({ height, period, direction, profileScale, sourceWidthM }) {
+    if (sourceWidthM !== undefined) {
+      this.sourceWidthM = sourceWidthM;
+      this.setupBoundary();
+    }
     if (height !== undefined) {
       this.waveHeight = height;
       if (this.waveProfile && this.waveProfile.peakHeight > 0) this.profileScale = height / this.waveProfile.peakHeight;
     }
+    if (profileScale !== undefined) this.profileScale = profileScale;
     if (period !== undefined) this.wavePeriod = period;
     if (direction !== undefined) {
       this.waveDirectionDeg = direction;
@@ -243,29 +323,14 @@ export class TsunamiSimulator {
     this.updateStats();
   }
 
-  /**
-   * Open-sea boundary cells (east columns, north/south rows) and their arrival delays.
-   * waveDirectionDeg is the bearing the wave comes FROM (90 = east, 110 = east-southeast).
-   */
+  /** Boundary cells for the current direction / source width, and the CSV shoaling factor for that edge. */
   setupBoundary() {
-    const { nx, ny, res, ground } = this;
-    const cells = [];
-    for (let y = 0; y < ny; y++) {
-      if (ground[y * nx + nx - 1] < 0) cells.push(y * nx + nx - 1);
-      if (ground[y * nx + nx - 2] < -5) cells.push(y * nx + nx - 2);
-    }
-    for (let x = 0; x < nx - 2; x++) {
-      if (ground[x] < -5) cells.push(x);
-      if (ground[(ny - 1) * nx + x] < -5) cells.push((ny - 1) * nx + x);
-    }
-    const th = (this.waveDirectionDeg * Math.PI) / 180;
-    const kE = -Math.sin(th); // propagation direction (east, north components)
-    const kN = -Math.cos(th);
-    const s = cells.map((i) => (i % nx) * res * kE - Math.floor(i / nx) * res * kN);
-    const sMin = Math.min(...s);
-    const c = Math.sqrt(9.80665 * Math.max(5, this.maxSeaDepth || 20));
-    this.bcCells = Int32Array.from(cells);
-    this.bcDelay = Float32Array.from(s, (v) => (v - sMin) / c);
+    const b = openBoundary(this.meta, this.ground, this.waveDirectionDeg, this.sourceWidthM, this.maxSeaDepth);
+    this.bcCells = b.cells;
+    this.bcDelay = b.delay;
+    this.bcWeight = b.weight;
+    this.bcDepth = b.depth;
+    this.shoalFactor = this.waveProfile ? shoalingFactor(this.waveProfile.sourceDepth, b.depth) : 1;
   }
 
   reset() {
@@ -279,7 +344,8 @@ export class TsunamiSimulator {
   /** Current offshore tsunami boundary wave elevation (m) */
   getOffshoreWaveEta(t) {
     if (this.waveProfile) {
-      return this.waveProfile.getEta(t) * (this.profileScale ?? 1);
+      // CSV level × Green's law correction from the CSV point to this edge × the user's multiplier
+      return this.waveProfile.getEta(t) * (this.shoalFactor ?? 1) * (this.profileScale ?? 1);
     }
     return offshoreWaveEta(t, this);
   }
@@ -317,10 +383,10 @@ export class TsunamiSimulator {
     // Each boundary cell sees the offshore signal delayed by the travel time of an
     // obliquely incident wave front, so the wave direction is honoured.
     if (!this.bcCells) this.setupBoundary();
-    const { bcCells, bcDelay } = this;
+    const { bcCells, bcDelay, bcWeight } = this;
     for (let k = 0; k < bcCells.length; k++) {
       const idx = bcCells[k];
-      const e = this.getOffshoreWaveEta(this.simTimeSec - bcDelay[k]);
+      const e = bcWeight[k] * this.getOffshoreWaveEta(this.simTimeSec - bcDelay[k]);
       this.eta[idx] = Math.max(this.ground[idx], e);
       this.depth[idx] = Math.max(0, this.eta[idx] - this.ground[idx]);
     }

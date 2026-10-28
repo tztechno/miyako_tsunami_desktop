@@ -1,0 +1,10 @@
+{
+  "source": "japan.tif (15 arc-second topography + bathymetry)",
+  "width": 721,
+  "height": 600,
+  "lonMin": 141.49999999999997,
+  "latMax": 41,
+  "dLon": 0.004166666666666664,
+  "dLat": 0.0041666666666666675,
+  "nodata": -32767
+}

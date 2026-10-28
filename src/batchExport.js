@@ -12,10 +12,13 @@ const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
 /** Crest times/heights of the offshore waveform within [0, durationSec] (local maxima ≥ 0.3 m). */
 export function waveCrests(params, durationSec) {
   const crests = [];
-  let prev = offshoreWaveEta(0, params);
-  let cur = offshoreWaveEta(1, params);
+  // A CSV scenario follows the CSV waveform times its multiplier, like the simulation boundary
+  const prof = params.waveProfile;
+  const eta = prof ? (t) => prof.getEta(t) * (params.profileScale ?? 1) : (t) => offshoreWaveEta(t, params);
+  let prev = eta(0);
+  let cur = eta(1);
   for (let t = 1; t < durationSec; t++) {
-    const next = offshoreWaveEta(t + 1, params);
+    const next = eta(t + 1);
     if (cur >= prev && cur > next && cur >= 0.3) crests.push({ t, h: cur });
     prev = cur;
     cur = next;

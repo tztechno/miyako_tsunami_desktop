@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { toPlane } from './proj.js';
+import { sourceZoneCenter } from './tsunamiSim.js';
 
 const PIN_SCREEN_SCALE = 0.006; // pin height ≈ 18px regardless of zoom
 
@@ -285,7 +286,11 @@ export class TsunamiScene {
     }
   }
 
-  buildSourceZone(meta, waveDirectionDeg = 90) {
+  /**
+   * The source zone marks where a wave from a distant earthquake enters the region (not the epicentre).
+   * sourceWidthM: length of the zone along the wave crest (null = the default size).
+   */
+  buildSourceZone(meta, waveDirectionDeg = 90, sourceWidthM = null) {
     if (this.sourceZoneGroup) {
       this.scene.remove(this.sourceZoneGroup);
       this.sourceZoneGroup.traverse((obj) => {
@@ -310,15 +315,14 @@ export class TsunamiScene {
     // - Taro: East offshore deep sea (W/2 - 250, Z=0)
     // - Miyako Port: Miyako Bay entrance (X=1450, Z=-1750) - placed in deep water at bay mouth,
     //   avoiding the mountainous Omoe Peninsula to the east, aligned with tsunami from Taro offshore/epicenter.
-    const pivotX = isMiyako ? 1450 : W / 2 - 250;
-    const pivotZ = isMiyako ? -1750 : 0;
+    const { x: pivotX, z: pivotZ } = sourceZoneCenter(meta);
 
     // Rotatable group containing source zone frame, plane, beacons, buoy and direction arrow
     const rotGroup = new THREE.Group();
     rotGroup.position.set(pivotX, 0, pivotZ);
 
     const zoneW = isMiyako ? 380 : Math.min(500, W * 0.08);
-    const zoneH = isMiyako ? 1700 : H - 100;
+    const zoneH = sourceWidthM > 0 ? sourceWidthM : isMiyako ? 1700 : H - 100;
     const halfW = zoneW / 2;
     const halfH = zoneH / 2;
     const yTop = 8.0;
