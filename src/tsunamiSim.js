@@ -214,7 +214,10 @@ export class TsunamiSimulator {
     this.bldgMask = new Uint8Array(N);
     this.initBuildingMask();
 
-    // Initial state: sea cells have eta = 0.0 (sea level), land cells depth = 0
+    // Still-water level (T.P. m) the tsunami rides on, e.g. high tide; the boundary wave is added on top
+    this.tideLevel = 0;
+
+    // Initial state: sea cells at the tide level, land cells depth = 0
     this.initWater();
 
     // Time & Controls
@@ -274,15 +277,16 @@ export class TsunamiSimulator {
   }
 
   initWater() {
+    const tide = this.tideLevel;
     this.maxSeaDepth = 0;
     this.hMax = 0;
     for (let i = 0; i < this.N; i++) {
       if (this.ground[i] < 0) this.maxSeaDepth = Math.max(this.maxSeaDepth, -this.ground[i]);
       const zb = this.ground[i];
       if (zb < 0) {
-        // Sea: flat at 0m sea level
-        this.eta[i] = 0.0;
-        this.depth[i] = Math.max(0, -zb);
+        // Sea: flat at the tide level
+        this.eta[i] = tide;
+        this.depth[i] = Math.max(0, tide - zb);
       } else {
         // Dry land
         this.eta[i] = zb;
@@ -293,6 +297,41 @@ export class TsunamiSimulator {
       this.qx[i] = 0;
       this.qy[i] = 0;
     }
+    if (tide > 0) this.floodTide(tide);
+  }
+
+  /**
+   * Land below the tide level that the sea reaches without crossing a seawall above the tide starts under water
+   * (flat at the tide level, already inundated at 0 s), so the run does not open with the sea pouring onto it.
+   */
+  floodTide(tide) {
+    const { nx, ny, ground, N } = this;
+    const { barrierGrid, barrierActive } = this.seawalls;
+    const queue = new Int32Array(N);
+    let head = 0, tail = 0;
+    for (let i = 0; i < N; i++) if (ground[i] < 0) queue[tail++] = i;
+    const visit = (j) => {
+      if (ground[j] < 0 || ground[j] >= tide || this.depth[j] > 0) return;
+      if (barrierActive[j] && barrierGrid[j] >= tide) return;
+      this.eta[j] = tide;
+      this.depth[j] = this.maxDepth[j] = tide - ground[j];
+      if (this.depth[j] >= 0.3) this.arrival[j] = 0;
+      queue[tail++] = j;
+    };
+    while (head < tail) {
+      const i = queue[head++];
+      const x = i % nx;
+      if (x > 0) visit(i - 1);
+      if (x < nx - 1) visit(i + 1);
+      if (i >= nx) visit(i - nx);
+      if (i < (ny - 1) * nx) visit(i + nx);
+    }
+  }
+
+  /** Still-water level (T.P. m) under the tsunami, e.g. high tide. Restarts the run. */
+  setTide(level) {
+    this.tideLevel = Math.max(0, level || 0);
+    this.reset();
   }
 
   initBuildingMask() {
@@ -438,7 +477,7 @@ export class TsunamiSimulator {
 
   /** Stable timestep from the CFL condition of the local inertial scheme (Bates et al. 2010). */
   stableDt() {
-    const hMax = Math.max(1, this.hMax || 0, this.maxSeaDepth + Math.abs(this.waveHeight));
+    const hMax = Math.max(1, this.hMax || 0, this.maxSeaDepth + this.tideLevel + Math.abs(this.waveHeight));
     return Math.min(1.0, (0.6 * this.res) / Math.sqrt(9.80665 * hMax));
   }
 
@@ -472,7 +511,7 @@ export class TsunamiSimulator {
     const { bcCells, bcDelay, bcWeight } = this;
     for (let k = 0; k < bcCells.length; k++) {
       const idx = bcCells[k];
-      const e = bcWeight[k] * this.getOffshoreWaveEta(this.simTimeSec - bcDelay[k]);
+      const e = this.tideLevel + bcWeight[k] * this.getOffshoreWaveEta(this.simTimeSec - bcDelay[k]);
       this.eta[idx] = Math.max(this.ground[idx], e);
       this.depth[idx] = Math.max(0, this.eta[idx] - this.ground[idx]);
     }
@@ -706,7 +745,7 @@ export class TsunamiSimulator {
       for (let k = 0; k < this.coastalCells.length; k++) {
         sum += this.eta[this.coastalCells[k]];
       }
-      coastalEta = sum / this.coastalCells.length;
+      coastalEta = sum / this.coastalCells.length - this.tideLevel;
     }
     this.stats.coastalWaveHeight = coastalEta;
 
@@ -722,7 +761,7 @@ export class TsunamiSimulator {
       for (let y = Math.floor(ny * 0.2); y < Math.floor(ny * 0.8); y += stepY) {
         for (let x = coastCellX; x < nx - 2; x++) {
           const idx = y * nx + x;
-          if (ground[idx] < 0 && Math.abs(eta[idx]) >= 0.25) {
+          if (ground[idx] < 0 && Math.abs(eta[idx] - this.tideLevel) >= 0.25) {
             if (x < minWaveX) minWaveX = x;
             break;
           }

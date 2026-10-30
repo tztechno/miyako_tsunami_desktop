@@ -62,14 +62,6 @@ export class SimClient {
     });
   }
 
-  setBarriers(seawallMgr) {
-    this.worker.postMessage({
-      type: 'barriers',
-      barrierGrid: seawallMgr.barrierGrid.slice(),
-      barrierActive: seawallMgr.barrierActive.slice(),
-    });
-  }
-
   setScenario(scenario) {
     const sc = { ...scenario };
     if (sc.waveProfile && typeof sc.waveProfile.serialize === 'function') {
@@ -88,6 +80,8 @@ export class SimClient {
   }
 
   setCustomWave(params) { this.worker.postMessage({ type: 'customWave', params }); }
+  /** Still-water level (T.P. m) under the tsunami; restarts the run. */
+  setTide(level) { this.worker.postMessage({ type: 'tide', level }); }
   reset() { this.worker.postMessage({ type: 'reset' }); }
   play() { this.worker.postMessage({ type: 'play' }); }
   pause() { this.worker.postMessage({ type: 'pause' }); }

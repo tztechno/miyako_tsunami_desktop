@@ -45,6 +45,7 @@ const SURVEY_COLORS = {
 export class TsunamiScene {
   constructor(canvas) {
     this.canvas = canvas;
+    this.seaLevel = 0; // still-water (tide) level; the sea is coloured by the anomaly above it
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color('#0d1b2a');
     this.scene.fog = new THREE.FogExp2('#0d1b2a', 0.00012);
@@ -668,7 +669,7 @@ export class TsunamiScene {
           c.lerpColors(C_FLOOD, C_FLOOD_DEEP, Math.min(1, d / 6));
         } else {
           // Sea: colour by surface anomaly so the incoming wave and the drawdown are visible
-          const a = eta[v];
+          const a = eta[v] - this.seaLevel;
           if (a >= 0) c.lerpColors(C_SEA_DEEP, C_SEA_RISE, Math.min(1, a / 6));
           else c.lerpColors(C_SEA_DEEP, C_SEA_LOW, Math.min(1, -a / 4));
         }

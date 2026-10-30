@@ -190,10 +190,6 @@ self.onmessage = (e) => {
       post(null, true);
       break;
     }
-    case 'barriers':
-      barriers.barrierGrid = m.barrierGrid;
-      barriers.barrierActive = m.barrierActive;
-      break;
     case 'scenario': {
       const sc = { ...m.scenario };
       if (sc.waveProfile) {
@@ -213,6 +209,10 @@ self.onmessage = (e) => {
       break;
     case 'customWave':
       sim.setCustomWave(m.params);
+      break;
+    case 'tide':
+      sim.setTide(m.level);
+      post(null, true);
       break;
     case 'reset':
       sim.reset();

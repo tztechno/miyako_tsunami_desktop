@@ -1,42 +1,29 @@
 // Compare the 2011 scenario against the measured survey heights for a given offshore wave height.
-// usage: node tools/calibrate-2011.mjs <offshoreHeightM> [region] [simMinutes]
+// usage: node tools/calibrate-2011.mjs <offshoreHeightM> [region] [simMinutes] [--present] [--no-buildings]
+//   Default: the 当時 option (ground_2011.f32 + the X-shaped old walls). --present: DEM5A + today's walls.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TsunamiSimulator, surveyWaterLevel, surveyFitsTerrain } from '../src/tsunamiSim.js';
 import { TSUNAMI_SCENARIOS } from '../src/scenarios.js';
+import { SeawallManager } from '../src/seawall.js';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const [heightArg, region = 'taro', minutes = '25'] = process.argv.slice(2);
+const [heightArg, region = 'taro', minutes = '25'] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const era = process.argv.includes('--present') ? 'present' : 'era2011';
 const dir = path.join(appRoot, 'public', 'data', 'regions', region);
 const meta = JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf8'));
-const buf = fs.readFileSync(path.join(dir, 'ground.f32'));
+const buf = fs.readFileSync(path.join(dir, era === 'era2011' && meta.ground2011 ? meta.ground2011.file : 'ground.f32'));
 const ground = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
-const buildings = JSON.parse(fs.readFileSync(path.join(dir, 'buildings.json'), 'utf8'));
+const buildings = process.argv.includes('--no-buildings') ? [] : JSON.parse(fs.readFileSync(path.join(dir, 'buildings.json'), 'utf8'));
 const survey = JSON.parse(fs.readFileSync(path.join(dir, 'survey2011.json'), 'utf8')).points;
 
-// Seawall as in the app's default preset (old first wall, 10 m)
-const N = meta.nx * meta.ny;
-const barrierGrid = new Float32Array(N).fill(-999);
-const barrierActive = new Uint8Array(N);
-const sw = JSON.parse(fs.readFileSync(path.join(dir, 'seawalls.json'), 'utf8')).seawalls.filter((s) => s.type === 'historic');
-for (const s of sw) {
-  for (let k = 0; k < s.points.length - 1; k++) {
-    const a = s.points[k], b = s.points[k + 1];
-    const steps = Math.ceil(Math.hypot(b.e - a.e, b.n - a.n) / (meta.res / 2));
-    for (let t = 0; t <= steps; t++) {
-      const e = a.e + ((b.e - a.e) * t) / steps;
-      const n = a.n + ((b.n - a.n) * t) / steps;
-      const gx = Math.floor((e - meta.originE) / meta.res);
-      const gz = Math.floor((meta.originN - n) / meta.res);
-      if (gx < 0 || gz < 0 || gx >= meta.nx || gz >= meta.ny) continue;
-      barrierGrid[gz * meta.nx + gx] = s.defaultHeight;
-      barrierActive[gz * meta.nx + gx] = 1;
-    }
-  }
-}
+// Seawalls as in the app
+const seawallManager = new SeawallManager(meta);
+seawallManager.seawallData = JSON.parse(fs.readFileSync(path.join(dir, 'seawalls.json'), 'utf8'));
+seawallManager.setEra(era);
 
-const sim = new TsunamiSimulator({ meta, ground, seawallManager: { barrierGrid, barrierActive }, buildings });
+const sim = new TsunamiSimulator({ meta, ground, seawallManager, buildings });
 sim.setScenario({ ...TSUNAMI_SCENARIOS.great_east_japan, waveHeight: Number(heightArg) });
 sim.advance(Number(minutes) * 60);
 

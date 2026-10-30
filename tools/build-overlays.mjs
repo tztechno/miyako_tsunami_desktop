@@ -1,6 +1,7 @@
 // Build comparison overlays for each region:
 //   hazard_tsunami.png  津波浸水想定 (重ねるハザードマップ, 岩手県公表の最大クラス) — RGBA overlay
 //   aerial_2011.jpg     東日本大震災 震災直後正射画像 (地理院 toho1, 2011年3〜4月撮影)
+//   aerial_1975.jpg     震災前の空中写真 (地理院 gazo1, 1974〜78年撮影)
 //   survey2011.json     2011年 津波痕跡の実測値 (東北地方太平洋沖地震津波合同調査グループ)
 //
 // usage: node tools/build-overlays.mjs [path/to/ttjt_survey_29-Dec-2012_tidecorrected_web.csv]
@@ -18,6 +19,7 @@ const REGIONS = ['taro', 'miyako_port'];
 
 const HAZARD_URL = 'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png';
 const TOHO1_URL = 'https://cyberjapandata.gsi.go.jp/xyz/toho1/{z}/{x}/{y}.jpg';
+const GAZO1_URL = 'https://cyberjapandata.gsi.go.jp/xyz/gazo1/{z}/{x}/{y}.jpg';
 
 /** Parse the TTJT tide-corrected CSV (row 1 = count, row 2 = header). Location names are Shift_JIS and unused. */
 function parseSurvey(csvPath) {
@@ -67,6 +69,10 @@ async function main() {
     const photoFile = path.join(dir, 'aerial_2011.jpg');
     if (force || !fs.existsSync(photoFile)) {
       await buildAerial({ ...base, maxPx: Math.max(1600, Math.round(widthM / 2.5)), outFile: photoFile, zoom: 16, tileUrl: TOHO1_URL, cacheTag: 'toho1_' });
+    }
+    const photo1975File = path.join(dir, 'aerial_1975.jpg');
+    if (force || !fs.existsSync(photo1975File)) {
+      await buildAerial({ ...base, maxPx: Math.max(1600, Math.round(widthM / 2.5)), outFile: photo1975File, zoom: 16, tileUrl: GAZO1_URL, cacheTag: 'gazo1_' });
     }
 
     if (survey) {

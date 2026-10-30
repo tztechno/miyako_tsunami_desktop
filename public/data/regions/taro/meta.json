@@ -21,5 +21,10 @@
     "height": 1000
   },
   "demSource": "GSI DEM5A/DEM10B (land) + japan.tif 15 arc-second bathymetry (sea)",
-  "built": "2026-10-28T06:23:24.835Z"
+  "built": "2026-10-28T06:23:24.835Z",
+  "ground2011": {
+    "file": "ground_2011.f32",
+    "source": "復興支援調査 5m mesh 標高 (2012, land in the 2011 inundation area) + GSI DEM5A + japan.tif",
+    "built": "2026-10-30T08:56:04.862Z"
+  }
 }

@@ -66,6 +66,9 @@ class App {
     // Width of the wave source along the crest (m). The source is where a wave from a distant earthquake
     // enters the region, not the epicentre; the wave height is uniform across it. Kept across scenarios and regions.
     this.sourceWidthM = 100000;
+    // Still-water level (T.P. m) under every scenario, e.g. high tide: the whole sea starts this high and the
+    // boundary wave rides on it. Kept across scenarios and regions.
+    this.tideLevel = 0;
     this.isPulseMode = false;
 
     this.init();
@@ -151,8 +154,9 @@ class App {
       [L('地域', 'Region'), $('select-region').selectedOptions[0].textContent],
       [L('津波シナリオ', 'Scenario'), sc.selectedOptions[0].textContent],
       [L('沖合の波高 (m)', 'Offshore wave height (m)'), $('input-wave-height').value],
+      [L('潮位 (T.P. m)', 'Tide level (T.P. m)'), this.tideLevel],
       [L('来襲方向', 'Wave coming from'), $('val-wave-dir').textContent],
-      [L('防潮堤', 'Seawall'), `${sw.selectedOptions[0]?.textContent || sw.value} / ${L('天端', 'crest')} ${$('input-seawall-height').value}m`],
+      [L('地形・防潮堤', 'Terrain & seawalls'), sw.selectedOptions[0]?.textContent || sw.value],
     ];
     const rows = [
       ...meta.map(([k, v]) => `${q(k)},${q(v)}`),
@@ -170,7 +174,7 @@ class App {
     );
   }
 
-  async loadRegion(regionName) {
+  async loadRegion(regionName, { keepView = false } = {}) {
     const token = ++this.loadToken;
     if (this.batching) {
       // switching region abandons a running batch (its worker is terminated below)
@@ -182,12 +186,21 @@ class App {
     this.sim = null;
 
     const meta = await (await fetch(`data/regions/${regionName}/meta.json`)).json();
-    const ground = new Float32Array(await (await fetch(`data/regions/${regionName}/ground.f32`)).arrayBuffer());
+    // The era brings its terrain: 当時 is the land before the new seawall's embankments. Only Taro has it.
+    const selEra = $('select-seawall');
+    selEra.disabled = !meta.ground2011;
+    if (!meta.ground2011) selEra.value = 'present';
+    const era = selEra.value;
+    const groundFile = era === 'era2011' ? meta.ground2011.file : 'ground.f32';
+    const ground = new Float32Array(await (await fetch(`data/regions/${regionName}/${groundFile}`)).arrayBuffer());
     let buildings = [];
     try {
       const bRes = await fetch(`data/regions/${regionName}/buildings.json`);
       if (bRes.ok) buildings = await bRes.json();
     } catch {}
+    // PLATEAU buildings are today's; no building data from before 2011 exists, so 当時 has none
+    // (2011 scenario vs the 5 m inundation mesh: CSI 0.90 without them, 0.74 with today's buildings)
+    if (era === 'era2011') buildings = [];
     if (token !== this.loadToken) return; // a newer region switch superseded this one
 
     this.regionMeta = meta;
@@ -197,7 +210,7 @@ class App {
     this.scene.clearAerialCache();
     await this.scene.buildTerrain(meta, ground, `data/regions/${regionName}/aerial.jpg`);
     this.scene.aerialCache.now = this.scene.groundMesh.material.map;
-    this.aerialUrls = { now: `data/regions/${regionName}/aerial.jpg`, y2011: `data/regions/${regionName}/aerial_2011.jpg` };
+    this.aerialUrls = { now: `data/regions/${regionName}/aerial.jpg`, y2011: `data/regions/${regionName}/aerial_2011.jpg`, y1975: `data/regions/${regionName}/aerial_1975.jpg` };
     if ($('sel-aerial').value !== 'now') await this.scene.setAerial($('sel-aerial').value, this.aerialUrls);
     await this.scene.buildOverlay('hazard', `data/regions/${regionName}/hazard_tsunami.png`);
     this.scene.setOverlayVisible('hazard', $('chk-hazardmap').checked);
@@ -235,8 +248,7 @@ class App {
     this.seawallMgr = new SeawallManager(meta);
     await this.seawallMgr.loadSeawalls(regionName);
     this.scene.scene.add(this.seawallMgr.meshGroup);
-    const swPreset = $('select-seawall').value;
-    this.seawallMgr.setPreset(swPreset === 'custom' ? 'custom' : swPreset, parseFloat($('input-seawall-height').value));
+    this.seawallMgr.setEra(era);
 
     this.sim = new SimClient({
       meta,
@@ -246,6 +258,7 @@ class App {
       renderStep: RENDER_STEP,
       onFrame: () => (this.frameDirty = true),
     });
+    if (this.tideLevel > 0) this.sim.setTide(this.tideLevel);
     await this.loadSurvey(regionName, meta, ground);
     await this.loadInund2011(regionName);
     await this.loadInund5(regionName);
@@ -256,7 +269,7 @@ class App {
     this.labelMgr.setVisible($('chk-labels').checked);
 
     this.currentRegion = regionName;
-    this.scene.setCameraView('viewCoast');
+    if (!keepView) this.scene.setCameraView('viewCoast');
 
     const dirInput = $('input-wave-dir');
     if (dirInput) {
@@ -525,6 +538,22 @@ class App {
     this.updateHUD();
   }
 
+  /** Reload the region with the terrain, seawalls and photo of the selected era; restarts the run. */
+  changeEra() {
+    $('sel-aerial').value = $('select-seawall').value === 'era2011' ? 'y1975' : 'now';
+    return this.loadRegion(this.currentRegion, { keepView: true });
+  }
+
+  /** Raise the still sea level by `level` m for every scenario (high tide); restarts the run. */
+  setTide(level) {
+    this.tideLevel = level;
+    $('val-tide').textContent = `+${level.toFixed(1)}m`;
+    this.scene.seaLevel = level;
+    this.sim.setTide(level);
+    this.depthChart.history = [];
+    this.updateHUD();
+  }
+
   /** Limit the wave source to widthM along the crest; redraws the source frame. */
   setSourceWidth(widthM) {
     this.sourceWidthM = widthM;
@@ -737,9 +766,10 @@ class App {
               ]
             : []),
           [L('波源の幅 (km)', 'Source width (km)'), this.sourceWidthM / 1000],
+          [L('潮位 (T.P. m, 津波はこの上に重なる)', 'Tide level (T.P. m, the tsunami rides on it)'), this.tideLevel],
           [L('周期 (秒)', 'Period (s)'), this.waveParams.wavePeriod],
           [L('来襲方向', 'Wave coming from'), $('val-wave-dir').textContent],
-          [L('防潮堤', 'Seawall'), `${sw.selectedOptions[0]?.textContent || sw.value} / ${L('天端', 'crest')} ${$('input-seawall-height').value}m`],
+          [L('地形・防潮堤', 'Terrain & seawalls'), sw.selectedOptions[0]?.textContent || sw.value],
           [L('計算した長さ (分)', 'Duration (min)'), durationSec / 60],
           [L('格子', 'Grid'), `${this.regionMeta.nx} × ${this.regionMeta.ny}, ${this.regionMeta.res} m`],
         ];
@@ -773,11 +803,6 @@ class App {
     $('btn-play').textContent = on ? t('pause') : t('play');
   }
 
-  syncSeawall() {
-    this.sim?.setBarriers(this.seawallMgr);
-    this.updateHUD();
-  }
-
   bindUI() {
     $('btn-lang').addEventListener('click', () => {
       setLang(getLang() === 'ja' ? 'en' : 'ja');
@@ -797,32 +822,17 @@ class App {
     selScenario.addEventListener('change', (e) => {
       const sc = TSUNAMI_SCENARIOS[e.target.value];
       if (!sc) return;
-      this.applyScenario(sc);
-      if (sc.recommendedSeawall && this.currentRegion === 'taro') {
-        $('select-seawall').value = sc.recommendedSeawall;
-        this.seawallMgr.setPreset(sc.recommendedSeawall);
-        $('input-seawall-height').value = this.seawallMgr.customHeight;
-        $('val-seawall-height').textContent = `${this.seawallMgr.customHeight.toFixed(1)}m`;
-        this.syncSeawall();
+      // A scenario tied to an era brings its terrain and seawalls (loadRegion applies the scenario)
+      const era = this.currentRegion === 'taro' ? sc.recommendedSeawall : null;
+      if (era && era !== $('select-seawall').value) {
+        $('select-seawall').value = era;
+        this.changeEra();
+      } else {
+        this.applyScenario(sc);
       }
     });
 
-    $('select-seawall').addEventListener('change', (e) => {
-      const preset = e.target.value;
-      const h = preset === 'none' ? 0.0 : 10.0;
-      this.seawallMgr.setPreset(preset, h);
-      $('input-seawall-height').value = h;
-      $('val-seawall-height').textContent = `${h.toFixed(1)}m`;
-      this.syncSeawall();
-    });
-
-    $('input-seawall-height').addEventListener('input', (e) => {
-      const h = parseFloat(e.target.value);
-      $('val-seawall-height').textContent = `${h.toFixed(1)}m`;
-      this.seawallMgr.setCustomHeight(h);
-      $('select-seawall').value = 'custom';
-      this.syncSeawall();
-    });
+    $('select-seawall').addEventListener('change', () => this.changeEra());
 
     $('batch-minutes').addEventListener('input', () => this.drawWavePreview());
     $('btn-batch-add').addEventListener('click', () => {
@@ -855,6 +865,14 @@ class App {
       }
       // A CSV scenario stays selected: the slider only scales its waveform
       if (!this.activeWaveProfile) selScenario.value = 'custom';
+    });
+
+    $('input-tide').addEventListener('input', (e) => {
+      if (this.batching) {
+        e.target.value = this.tideLevel; // the batch run owns the simulation until it finishes
+        return;
+      }
+      this.setTide(parseFloat(e.target.value));
     });
 
     $('input-source-width').addEventListener('input', (e) => {
@@ -1149,7 +1167,6 @@ class App {
         waveProfile: profile,
         description: `読み込み済み波源データ（${profile.location || file.name}）。最大波高 ${profile.peakHeight.toFixed(2)}m（到達: ${(profile.peakTimeSec / 60).toFixed(1)}分）、総時間 ${(profile.durationSec / 60).toFixed(1)}分、${profile.count}点。`,
         description_en: `Imported wave boundary data (${profile.location || file.name}). Peak surge ${profile.peakHeight.toFixed(2)}m (at ${(profile.peakTimeSec / 60).toFixed(1)} min), duration ${(profile.durationSec / 60).toFixed(1)} min, ${profile.count} samples.`,
-        recommendedSeawall: 'historic_10',
       };
 
       const selScenario = $('select-scenario');

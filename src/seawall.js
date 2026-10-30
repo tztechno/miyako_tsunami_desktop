@@ -1,11 +1,16 @@
 import * as THREE from 'three';
 
+// Seawall ids of each era. The terrain goes with the era too (main.js loads ground_2011.f32 for era2011).
+export const SEAWALL_ERAS = {
+  era2011: ['historic_first', 'historic_seaward'], // the X before the 2011 tsunami
+  present: ['historic_first', 'new_taro'], // today: old first wall + new 14.7 m wall
+};
+
 export class SeawallManager {
   constructor(regionMeta) {
     this.meta = regionMeta;
     this.seawallData = null;
-    this.activePreset = 'historic_10'; // 'historic_10' | 'none' | 'custom'
-    this.customHeight = 10.0;
+    this.era = 'present'; // a SEAWALL_ERAS key
     this.meshGroup = new THREE.Group();
     this.seawallMeshes = new Map();
 
@@ -30,32 +35,15 @@ export class SeawallManager {
     }
   }
 
-  setPreset(preset, customHeight = 10.0) {
-    this.activePreset = preset;
-    this.customHeight = customHeight;
-    this.rebuildMeshes();
-    this.updateBarrierGrid();
-  }
-
-  setCustomHeight(height) {
-    this.customHeight = height;
-    if (this.activePreset !== 'custom') {
-      this.activePreset = 'custom';
-    }
+  setEra(era) {
+    this.era = era;
     this.rebuildMeshes();
     this.updateBarrierGrid();
   }
 
   getActiveSeawallList() {
     if (!this.seawallData || !this.seawallData.seawalls) return [];
-    if (this.activePreset === 'none') return [];
-
-    return this.seawallData.seawalls.filter(sw => {
-      if (this.activePreset === 'historic_10') {
-        return sw.type === 'historic';
-      }
-      return true; // custom
-    });
+    return this.seawallData.seawalls.filter(sw => SEAWALL_ERAS[this.era].includes(sw.id));
   }
 
   rebuildMeshes() {
@@ -72,7 +60,7 @@ export class SeawallManager {
     if (activeList.length === 0) return;
 
     for (const sw of activeList) {
-      const targetH = this.activePreset === 'custom' ? this.customHeight : sw.defaultHeight;
+      const targetH = sw.defaultHeight;
       const mesh = this.createSeawallMesh(sw, targetH);
       if (mesh) {
         this.meshGroup.add(mesh);
@@ -185,7 +173,7 @@ export class SeawallManager {
     const { originE, originN, res, nx, ny } = this.meta;
 
     for (const sw of activeList) {
-      const targetH = this.activePreset === 'custom' ? this.customHeight : sw.defaultHeight;
+      const targetH = sw.defaultHeight;
       const pts = sw.points;
       const halfW = (sw.width || 6.0) / 2 + res * 0.7;
 

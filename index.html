@@ -103,22 +103,13 @@
         <!-- 3. Seawall Controls -->
         <section class="panel-section">
           <label class="section-title" for="select-seawall">
-            <span>🛡️</span> <span data-i18n="seawall">防波堤・防潮堤設定</span>
+            <span>🛡️</span> <span data-i18n="seawall">地形・防潮堤</span>
           </label>
           <select id="select-seawall">
-            <option value="historic_10" selected data-i18n="seawallPresets.historic_10">旧田老防潮堤 第一・現存部 (海抜10m)</option>
-            <option value="none" data-i18n="seawallPresets.none">防潮堤なし (自然海岸)</option>
-            <option value="custom" data-i18n="seawallPresets.custom">カスタム高さ</option>
+            <option value="present" selected data-i18n="seawallPresets.present">現在 (第一 10m ＋ 新田老 14.7m)</option>
+            <option value="era2011" data-i18n="seawallPresets.era2011">当時・2011年震災前 (旧防潮堤 X字 10m)</option>
           </select>
-
-          <!-- Seawall Height Slider -->
-          <div class="slider-group">
-            <div class="slider-header">
-              <span data-i18n="seawallHeight">防潮堤の天端標高</span>
-              <span id="val-seawall-height" class="slider-val">10.0m</span>
-            </div>
-            <input id="input-seawall-height" type="range" min="0" max="22" step="0.5" value="10.0" />
-          </div>
+          <p class="hint" data-i18n="eraHint">地形と防潮堤をセットで切り替えます（田老のみ）。切り替えると計算は最初からになります。</p>
         </section>
 
         <!-- 4. Wave Parameters & Artificial Wave Trigger -->
@@ -129,6 +120,14 @@
               <span id="val-wave-height" class="slider-val">4.1m</span>
             </div>
             <input id="input-wave-height" type="range" min="1" max="25" step="0.1" value="4.1" />
+          </div>
+          <div class="slider-group">
+            <div class="slider-header">
+              <span data-i18n="tideLevel">潮位 (満潮など・全シナリオ共通)</span>
+              <span id="val-tide" class="slider-val">+0.0m</span>
+            </div>
+            <input id="input-tide" type="range" min="0" max="5" step="0.1" value="0" />
+            <p class="hint" data-i18n="tideHint">海面全体をこの高さ (T.P.) まで上げ、津波はその上に重なります。一括計算にも反映されます。変えると計算は最初からになります。</p>
           </div>
           <div class="slider-group">
             <div class="slider-header">
@@ -303,6 +302,7 @@
             <label><span data-i18n="aerialPhoto">航空写真</span>
               <select id="sel-aerial">
                 <option value="now" data-i18n="aerialNow">現在</option>
+                <option value="y1975" data-i18n="aerial1975">1974〜78年 震災前</option>
                 <option value="y2011" data-i18n="aerial2011">2011年3月 震災直後</option>
               </select>
             </label>
