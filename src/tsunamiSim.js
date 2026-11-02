@@ -5,6 +5,7 @@
  */
 
 import { WaveProfile } from './waveProfile.js';
+import { edgeSegments, cellEdgeP } from './edgePath.js';
 export { WaveProfile };
 
 /**
@@ -356,8 +357,20 @@ export class TsunamiSimulator {
     this.wavePeriod = scenario.periodSec;
     this.waveDirectionDeg = scenario.directionDeg;
     this.hasPreDrawdown = !!scenario.hasPreDrawdown;
+    this.edgeWaves = scenario.edgeWaves || null;
+    this.edgeNow = this.edgeWaves ? new Float32Array(this.edgeWaves.p.length) : null;
     this.setupBoundary();
     this.reset();
+  }
+
+  /** Level at every edge station at time t (s after the earthquake) × the CSV multiplier. */
+  sampleEdgeWaves(t) {
+    const { p, dtSec, count, eta } = this.edgeWaves;
+    const f = Math.max(0, Math.min(count - 1.001, t / dtSec)), k = Math.floor(f), w = f - k, scale = this.profileScale ?? 1;
+    for (let st = 0; st < p.length; st++) {
+      const o = st * count + k;
+      this.edgeNow[st] = (eta[o] * (1 - w) + eta[o + 1] * w) * scale;
+    }
   }
 
   setWaveProfile(profile) {
@@ -455,7 +468,22 @@ export class TsunamiSimulator {
     this.bcDelay = b.delay;
     this.bcWeight = b.weight;
     this.bcDepth = b.depth;
-    this.shoalFactor = this.waveProfile ? shoalingFactor(this.waveProfile.sourceDepth, b.depth) : 1;
+    // waveforms sampled at the edge itself (edgeWaves) need no shoaling correction
+    this.shoalFactor = this.waveProfile && !this.edgeWaves ? shoalingFactor(this.waveProfile.sourceDepth, b.depth) : 1;
+    // edgeWaves: each boundary cell takes the wave at its place along the edges, between its two nearest stations
+    if (this.edgeWaves) {
+      const st = this.edgeWaves.p;
+      const segs = edgeSegments(this.meta);
+      this.bcStation = new Uint16Array(b.cells.length);
+      this.bcStationW = new Float32Array(b.cells.length);
+      b.cells.forEach((i, k) => {
+        const p = cellEdgeP(this.meta, segs, i % this.nx, Math.floor(i / this.nx));
+        let a = 0;
+        while (a < st.length - 2 && st[a + 1] < p) a++;
+        this.bcStation[k] = a;
+        this.bcStationW[k] = st.length < 2 ? 0 : Math.max(0, Math.min(1, (p - st[a]) / (st[a + 1] - st[a])));
+      });
+    }
   }
 
   reset() {
@@ -508,10 +536,17 @@ export class TsunamiSimulator {
     // Each boundary cell sees the offshore signal delayed by the travel time of an
     // obliquely incident wave front, so the wave direction is honoured.
     if (!this.bcCells) this.setupBoundary();
-    const { bcCells, bcDelay, bcWeight } = this;
+    // With edgeWaves each cell takes the waveform sampled at its own place along the edge instead.
+    const { bcCells, bcDelay, bcWeight, edgeWaves, bcStation, bcStationW } = this;
+    if (edgeWaves) this.sampleEdgeWaves(this.simTimeSec);
     for (let k = 0; k < bcCells.length; k++) {
       const idx = bcCells[k];
-      const e = this.tideLevel + bcWeight[k] * this.getOffshoreWaveEta(this.simTimeSec - bcDelay[k]);
+      const wave = edgeWaves
+        ? (bcStation.length && this.edgeNow.length > 1
+          ? this.edgeNow[bcStation[k]] * (1 - bcStationW[k]) + this.edgeNow[bcStation[k] + 1] * bcStationW[k]
+          : this.edgeNow[0])
+        : this.getOffshoreWaveEta(this.simTimeSec - bcDelay[k]);
+      const e = this.tideLevel + bcWeight[k] * wave;
       this.eta[idx] = Math.max(this.ground[idx], e);
       this.depth[idx] = Math.max(0, this.eta[idx] - this.ground[idx]);
     }

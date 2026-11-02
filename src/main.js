@@ -489,12 +489,15 @@ class App {
 
     // Load CSV wave profile if this scenario is driven by a CSV file
     if (sc.isCsvWave) {
-      if (!sc.waveProfile && sc.csvUrl) {
+      // csvUrl may hold {region}: presets sampled along each region's own edges
+      const url = sc.csvUrl?.replace('{region}', this.currentRegion);
+      if (url && sc.waveProfileUrl !== url) {
         try {
-          const res = await fetch(sc.csvUrl);
+          const res = await fetch(url);
           if (res.ok) {
             const csvText = await res.text();
-            sc.waveProfile = WaveProfile.parse(csvText, sc.csvUrl.split('/').pop());
+            sc.waveProfile = WaveProfile.parse(csvText, url.split('/').pop());
+            sc.waveProfileUrl = url;
           }
         } catch (err) {
           console.error('Failed to load wave CSV:', err);
@@ -507,15 +510,18 @@ class App {
         this.activeWaveProfile = prof;
         this.showCsvMetadataBadge(sc.waveProfile);
         sc.waveHeight = sc.waveProfile.peakHeight;
-        sc.durationMin = Math.ceil(sc.waveProfile.durationSec / 60);
+        sc.durationMin = sc.durationMin ?? Math.ceil(sc.waveProfile.durationSec / 60); // a preset keeps its own length
       }
     } else {
       this.activeWaveProfile = null;
       this.hideCsvMetadataBadge();
     }
 
+    // Waveforms at stations along this region's edges (tools/build-wave-sources.mjs), fed in where they were sampled
+    this.activeEdgeWaves = sc.edgesId ? await this.loadEdgeWaves(`${sc.edgesId}_${this.currentRegion}`) : null;
+
     this.currentScenarioId = sc.id;
-    this.sim.setScenario({ ...sc, directionDeg: deg, waveProfile: this.activeWaveProfile });
+    this.sim.setScenario({ ...sc, directionDeg: deg, waveProfile: this.activeWaveProfile, edgeWaves: this.activeEdgeWaves });
     this.updateScenarioDesc(sc);
     $('input-wave-height').value = sc.waveHeight;
     $('val-wave-height').textContent = `${sc.waveHeight.toFixed(1)}m`;
@@ -533,6 +539,8 @@ class App {
     };
     $('batch-minutes').value = sc.durationMin || 30;
     this.setSourceWidth(this.sourceWidthM);
+    // a preset fitted with a multiplier brings it; otherwise the user's multiplier is kept
+    if (sc.csvScale != null) this.csvScale = sc.csvScale;
     if (this.activeWaveProfile) this.setCsvScale(this.csvScale);
     this.drawWavePreview();
     this.updateHUD();
@@ -569,8 +577,24 @@ class App {
    * Green's law factor from the CSV point to the forced edge of the region for the current direction and
    * source width (the simulator computes the same in setupBoundary). Shown in the CSV badge.
    */
+  /** Edge waveforms { p, dtSec, count, eta } of one scenario and region, cached. */
+  async loadEdgeWaves(key) {
+    this.edgeWaveCache = this.edgeWaveCache || {};
+    if (!this.edgeWaveCache[key]) {
+      const w = await (await fetch(`data/wave_sources/${key}_edges.json`)).json();
+      this.edgeWaveCache[key] = { p: w.p, dtSec: w.dtSec, count: w.count, eta: Float32Array.from(w.eta) };
+    }
+    return this.edgeWaveCache[key];
+  }
+
   updateCsvShoal() {
     const prof = this.activeWaveProfile;
+    if (this.activeEdgeWaves) {
+      // sampled at the region's edge itself: nothing to convert
+      $('csv-meta-shoal').textContent = t('csvShoalEdge');
+      this.csvShoal = 1;
+      return 1;
+    }
     const deg = parseFloat($('input-wave-dir').value) || 90;
     const b = openBoundary(this.regionMeta, this.groundF32, deg, this.sourceWidthM, 20);
     const factor = shoalingFactor(prof.sourceDepth, b.depth);

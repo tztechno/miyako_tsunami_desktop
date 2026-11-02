@@ -1,15 +1,19 @@
 // Compare the 2011 scenario against the measured survey heights for a given offshore wave height.
 // usage: node tools/calibrate-2011.mjs <offshoreHeightM> [region] [simMinutes] [--present] [--no-buildings]
 //   Default: the 当時 option (ground_2011.f32 + the X-shaped old walls). --present: DEM5A + today's walls.
+//   --edges <nankai_trough scenario>: waveforms along the region's edges (tools/build-wave-sources.mjs);
+//   offshoreHeightM is then their multiplier.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TsunamiSimulator, surveyWaterLevel, surveyFitsTerrain } from '../src/tsunamiSim.js';
+import { TsunamiSimulator, WaveProfile, surveyWaterLevel, surveyFitsTerrain } from '../src/tsunamiSim.js';
 import { TSUNAMI_SCENARIOS } from '../src/scenarios.js';
 import { SeawallManager } from '../src/seawall.js';
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const [heightArg, region = 'taro', minutes = '25'] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+const argv = process.argv.slice(2);
+const edgesId = argv.includes('--edges') ? argv[argv.indexOf('--edges') + 1] : null;
+const [heightArg, region = 'taro', minutes = '25'] = argv.filter((a, k) => !a.startsWith('--') && argv[k - 1] !== '--edges');
 const era = process.argv.includes('--present') ? 'present' : 'era2011';
 const dir = path.join(appRoot, 'public', 'data', 'regions', region);
 const meta = JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf8'));
@@ -24,7 +28,15 @@ seawallManager.seawallData = JSON.parse(fs.readFileSync(path.join(dir, 'seawalls
 seawallManager.setEra(era);
 
 const sim = new TsunamiSimulator({ meta, ground, seawallManager, buildings });
-sim.setScenario({ ...TSUNAMI_SCENARIOS.great_east_japan, waveHeight: Number(heightArg) });
+if (edgesId) {
+  const ws = path.join(appRoot, 'public', 'data', 'wave_sources', `${edgesId}_${region}`);
+  const w = JSON.parse(fs.readFileSync(`${ws}_edges.json`, 'utf8'));
+  const waveProfile = WaveProfile.parse(fs.readFileSync(`${ws}_edge.csv`, 'utf8'), 'edge.csv');
+  sim.setScenario({ ...TSUNAMI_SCENARIOS.great_east_japan, waveProfile, waveHeight: waveProfile.peakHeight, edgeWaves: { ...w, eta: Float32Array.from(w.eta) } });
+  sim.setCustomWave({ profileScale: Number(heightArg) });
+} else {
+  sim.setScenario({ ...TSUNAMI_SCENARIOS.great_east_japan, waveHeight: Number(heightArg) });
+}
 sim.advance(Number(minutes) * 60);
 
 const cells = survey.map((p) => Math.floor(p.z / meta.res) * meta.nx + Math.floor(p.x / meta.res));
