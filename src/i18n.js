@@ -5,7 +5,7 @@ export const translations = {
     region: '地域選択',
     scenario: '津波シナリオ',
     seawall: '地形・防潮堤',
-    eraHint: '地形と防潮堤をセットで切り替えます（田老のみ）。切り替えると計算は最初からになります。',
+    eraHint: '地形と防潮堤をセットで切り替えます。田老: 当時は旧防潮堤 X字 10m、現在は第一 10m＋新田老 14.7m。宮古港: 当時は閉伊川の堤防 4m、現在は堤防 6m＋河口の水門。切り替えると計算は最初からになります。',
     tsunamiHeight: '津波の波高 (沖合)',
     tsunamiDirection: '津波の来襲方向',
     sourceWidth: '波源の幅 (波の峰に沿った長さ)',
@@ -142,9 +142,9 @@ export const translations = {
     injectPulseWave: '水面クリックで人工波を発生',
     pulseHeight: '人工波の高さ',
     scenarios: {
-      nankai_trough: '南海トラフ巨大地震連動 (nankai_trough波源 - 4.08m)',
-      nankai_trough_full: '南海トラフ巨大地震 (2時間フルタイムライン)',
-      great_east_japan: '東日本大震災 (2011年再現)',
+      nankai_trough: '南海トラフ全域連動 M9.1 (地震後1:30〜3:30)',
+      nankai_trough_full: '南海トラフ全域連動 M9.1 (地震後8時間)',
+      great_east_japan: '東日本大震災 (2011年・nankai_trough波源)',
       l2_maximum: '想定最大規模 L2津波 (岩手県公表・波高19.5m)',
       l1_design: '施設計画規模 L1津波 (設計波・波高14.0m)',
       chile_1960: 'チリ地震津波 (1960年再現 - 波高5.5m)',
@@ -152,8 +152,8 @@ export const translations = {
       csv_custom: 'インポート波源CSV (ユーザー読込)',
     },
     seawallPresets: {
-      present: '現在 (第一 10m ＋ 新田老 14.7m)',
-      era2011: '当時・2011年震災前 (旧防潮堤 X字 10m)',
+      present: '現在',
+      era2011: '当時・2011年震災前',
     }
   },
   en: {
@@ -162,7 +162,7 @@ export const translations = {
     region: 'Region',
     scenario: 'Tsunami Scenario',
     seawall: 'Terrain & Seawalls',
-    eraHint: 'Switches the terrain and seawalls together (Taro only). Switching restarts the run.',
+    eraHint: 'Switches the terrain and seawalls together. Taro: the old X-shaped 10 m walls then, the first wall 10 m + new 14.7 m wall now. Miyako Port: Hei River levees 4 m then, levees 6 m + river-mouth gate now. Switching restarts the run.',
     tsunamiHeight: 'Offshore Wave Height',
     tsunamiDirection: 'Wave Coming From',
     sourceWidth: 'Source width (along the crest)',
@@ -299,9 +299,9 @@ export const translations = {
     injectPulseWave: 'Click water to trigger artificial wave',
     pulseHeight: 'Wave Pulse Height',
     scenarios: {
-      nankai_trough: 'Nankai Trough Megathrust (nankai_trough Wave - 4.08m)',
-      nankai_trough_full: 'Nankai Trough Megathrust (2-Hour Full Timeline)',
-      great_east_japan: '2011 Tohoku Earthquake Tsunami (reproduction)',
+      nankai_trough: 'Nankai Trough Full Rupture M9.1 (1:30-3:30 after the quake)',
+      nankai_trough_full: 'Nankai Trough Full Rupture M9.1 (8 hours)',
+      great_east_japan: '2011 Tohoku Earthquake Tsunami (nankai_trough source)',
       l2_maximum: 'Level 2 Maximum Probable Tsunami (19.5m)',
       l1_design: 'Level 1 Design Tsunami (14.0m)',
       chile_1960: '1960 Chile Earthquake Tsunami (5.5m)',
@@ -309,8 +309,8 @@ export const translations = {
       csv_custom: 'Imported Wave CSV (User Loaded)',
     },
     seawallPresets: {
-      present: 'Present (First Wall 10m + New Taro Wall 14.7m)',
-      era2011: 'At the Time, Before 2011 (Old X-Shaped Walls, 10m)',
+      present: 'Present',
+      era2011: 'At the Time, Before 2011',
     }
   }
 };

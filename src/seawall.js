@@ -2,8 +2,10 @@ import * as THREE from 'three';
 
 // Seawall ids of each era. The terrain goes with the era too (main.js loads ground_2011.f32 for era2011).
 export const SEAWALL_ERAS = {
-  era2011: ['historic_first', 'historic_seaward'], // the X before the 2011 tsunami
-  present: ['historic_first', 'new_taro'], // today: old first wall + new 14.7 m wall
+  // Taro: the X before the 2011 tsunami; Miyako Port: the 4 m Hei River levees
+  era2011: ['historic_first', 'historic_seaward', 'hei_levee_n_2011', 'hei_levee_s_2011'],
+  // Taro: old first wall + new 14.7 m wall; Miyako Port: the levees raised to 6 m and the river-mouth gate
+  present: ['historic_first', 'new_taro', 'hei_levee_n', 'hei_levee_s', 'hei_gate'],
 };
 
 export class SeawallManager {

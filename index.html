@@ -52,9 +52,9 @@
             <span>⚡</span> <span data-i18n="scenario">津波シナリオ</span>
           </label>
           <select id="select-scenario">
-            <option value="nankai_trough" selected data-i18n="scenarios.nankai_trough">南海トラフ巨大地震連動 (nankai_trough波源 - 4.08m)</option>
-            <option value="nankai_trough_full" data-i18n="scenarios.nankai_trough_full">南海トラフ巨大地震 (2時間フルタイムライン)</option>
-            <option value="great_east_japan" data-i18n="scenarios.great_east_japan">東日本大震災 (2011年再現)</option>
+            <option value="nankai_trough" selected data-i18n="scenarios.nankai_trough">南海トラフ全域連動 M9.1 (地震後1:30〜3:30)</option>
+            <option value="nankai_trough_full" data-i18n="scenarios.nankai_trough_full">南海トラフ全域連動 M9.1 (地震後8時間)</option>
+            <option value="great_east_japan" data-i18n="scenarios.great_east_japan">東日本大震災 (2011年・nankai_trough波源)</option>
             <option value="l2_maximum" data-i18n="scenarios.l2_maximum">想定最大規模 L2津波 (県公表 - 19.5m)</option>
             <option value="l1_design" data-i18n="scenarios.l1_design">施設計画規模 L1津波 (設計波 - 14.0m)</option>
             <option value="chile_1960" data-i18n="scenarios.chile_1960">チリ地震津波 (1960年再現 - 5.5m)</option>
@@ -106,10 +106,10 @@
             <span>🛡️</span> <span data-i18n="seawall">地形・防潮堤</span>
           </label>
           <select id="select-seawall">
-            <option value="present" selected data-i18n="seawallPresets.present">現在 (第一 10m ＋ 新田老 14.7m)</option>
-            <option value="era2011" data-i18n="seawallPresets.era2011">当時・2011年震災前 (旧防潮堤 X字 10m)</option>
+            <option value="present" selected data-i18n="seawallPresets.present">現在</option>
+            <option value="era2011" data-i18n="seawallPresets.era2011">当時・2011年震災前</option>
           </select>
-          <p class="hint" data-i18n="eraHint">地形と防潮堤をセットで切り替えます（田老のみ）。切り替えると計算は最初からになります。</p>
+          <p class="hint" data-i18n="eraHint">地形と防潮堤をセットで切り替えます。田老: 当時は旧防潮堤 X字 10m、現在は第一 10m＋新田老 14.7m。宮古港: 当時は閉伊川の堤防 4m、現在は堤防 6m＋河口の水門。切り替えると計算は最初からになります。</p>
         </section>
 
         <!-- 4. Wave Parameters & Artificial Wave Trigger -->

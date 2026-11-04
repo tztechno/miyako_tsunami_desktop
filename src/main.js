@@ -847,7 +847,7 @@ class App {
       const sc = TSUNAMI_SCENARIOS[e.target.value];
       if (!sc) return;
       // A scenario tied to an era brings its terrain and seawalls (loadRegion applies the scenario)
-      const era = this.currentRegion === 'taro' ? sc.recommendedSeawall : null;
+      const era = this.regionMeta?.ground2011 ? sc.recommendedSeawall : null;
       if (era && era !== $('select-seawall').value) {
         $('select-seawall').value = era;
         this.changeEra();
