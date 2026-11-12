@@ -1,0 +1,6 @@
+# Cache headers for Cloudflare Workers static assets (not used by the desktop app).
+# Built JS/CSS have hashed names; the data files keep their names, so they are only cached for an hour.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+/data/*
+  Cache-Control: public, max-age=3600

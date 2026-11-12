@@ -1,0 +1,15 @@
+// Cloudflare Workers: serve the Vite build (dist/) as static assets only (no server code), as in osaka_tsunami.
+// Everything the app needs at run time is in the page (simulation in a Web Worker, 2 m tile building and
+// address search from the browser, tiles kept in IndexedDB), so the same build that goes into the Tauri
+// desktop app runs here. Keep the site private with Cloudflare Access (see CLOUDFLARE_DEPLOY.md).
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "miyako-tsunami",
+  "compatibility_date": "2026-11-12",
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}
