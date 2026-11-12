@@ -615,6 +615,38 @@ export class TsunamiScene {
     this.scene.add(this.waterMesh);
   }
 
+  /** Region size (m): the 2 m detail tile places itself with these (src/tile/tileView.js). */
+  get W() {
+    return this.terrain ? this.terrain.W : 0;
+  }
+
+  get H() {
+    return this.terrain ? this.terrain.H : 0;
+  }
+
+  /**
+   * Area of the 2 m detail tile (region-local metres { x0, z0, x1, z1 }), or null: the 5 m ground, buildings and
+   * water are hidden there so the tile's own surface shows (as in osaka_tsunami).
+   */
+  setDetailRect(rect) {
+    this.detailRect = rect;
+    const inside = (x, z) => rect && x >= rect.x0 && x <= rect.x1 && z >= rect.z0 && z <= rect.z1;
+    this.applyBuildingFocus();
+    if (this.groundMesh) {
+      const pos = this.groundMesh.geometry.attributes.position;
+      this.groundMesh.userData.origY ||= Float32Array.from({ length: pos.count }, (_, k) => pos.getY(k));
+      const origY = this.groundMesh.userData.origY;
+      for (let k = 0; k < pos.count; k++) pos.setY(k, inside(pos.getX(k) + this.W / 2, pos.getZ(k) + this.H / 2) ? origY[k] - 40 : origY[k]);
+      pos.needsUpdate = true;
+    }
+    const { wnx, wny, waterStep: step } = this;
+    const res = this.terrain?.res || 5;
+    this.detailHide = rect && wnx ? new Uint8Array(wnx * wny) : null;
+    if (this.detailHide) for (let j = 0; j < wny; j++) for (let i = 0; i < wnx; i++) {
+      if (inside((i * step + 0.5) * res, (j * step + 0.5) * res)) this.detailHide[j * wnx + i] = 1;
+    }
+  }
+
   /** Update water surface from a worker frame (downsampled eta/depth/foam). */
   updateWater(frame, ground) {
     if (!this.waterMesh || !frame) return;
@@ -631,7 +663,7 @@ export class TsunamiScene {
       for (let i = 0; i < wnx; i++) {
         const v = j * wnx + i;
         const zb = ground[sy * nx + i * step];
-        const d = depth[v];
+        const d = this.detailHide?.[v] ? 0 : depth[v]; // the 2 m tile shows its own water
         if (this.showMatch && this.actual5 && zb >= 0) {
           const a = this.actual5[v];
           const simWet = maxDepth[v] >= 0.1;
@@ -750,11 +782,14 @@ export class TsunamiScene {
     const { enabled, radius, x, z } = this.buildingFocus;
     const r2 = radius * radius;
     const m = mesh.instanceMatrix.array;
+    const rect = this.detailRect; // the 2 m tile draws its own buildings (region-local metres)
     let shown = 0;
     for (let i = 0; i < mesh.count; i++) {
       const dx = this.buildingXZ[i * 2] - x;
       const dz = this.buildingXZ[i * 2 + 1] - z;
-      if (!enabled || dx * dx + dz * dz <= r2) {
+      const bx = this.buildingXZ[i * 2] + this.W / 2, bz = this.buildingXZ[i * 2 + 1] + this.H / 2;
+      const inTile = rect && bx >= rect.x0 && bx <= rect.x1 && bz >= rect.z0 && bz <= rect.z1;
+      if (!inTile && (!enabled || dx * dx + dz * dz <= r2)) {
         m.set(this.buildingMatrices.subarray(i * 16, i * 16 + 16), i * 16);
         shown++;
       } else {

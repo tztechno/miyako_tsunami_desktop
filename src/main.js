@@ -11,9 +11,14 @@ import { buildBatchZip, waveCrests } from './batchExport.js';
 import { offshoreWaveEta, openBoundary, shoalingFactor, surveyFitsTerrain, regionSource } from './tsunamiSim.js';
 import { WaveProfile } from './waveProfile.js';
 import { seaDepthAt } from './bathyLookup.js';
+import { Timeline } from './timeline.js';
+import { searchPlaces } from './geocode.js';
+import { TileController } from './tile/tileController.js';
 
 const RENDER_STEP = 2; // water mesh = every 2nd sim cell (10 m)
 const $ = (id) => document.getElementById(id);
+// Phones / narrow screens: panels start folded and the detail tile is 1 km only (memory and download size)
+const IS_MOBILE = window.matchMedia('(max-width: 760px), (pointer: coarse)').matches;
 
 const COMPASS_JA = [
   '北', '北北東', '北東', '東北東',
@@ -76,6 +81,9 @@ class App {
 
   async init() {
     this.bindUI();
+    this.bindFolding();
+    this.bindAddressSearch();
+    this.setupTile();
     this.setupResize();
     this.setupPicking();
     await this.loadRegion(this.currentRegion);
@@ -87,6 +95,10 @@ class App {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       if (this.recording) return; // the recorder drives rendering
+      if (this.tileCtl && this.sim) {
+        this.tileCtl.tick();
+        this.tileCtl.showAt(this.sim.simTimeSec);
+      }
 
       if (this.frameDirty && this.sim?.frame) {
         this.frameDirty = false;
@@ -259,6 +271,19 @@ class App {
       onFrame: () => (this.frameDirty = true),
     });
     if (this.tideLevel > 0) this.sim.setTide(this.tideLevel);
+    // keyframes of this run for the 2 m detail tile; a run that goes back in time (reset) drops the tile's results
+    this.timeline = new Timeline({ meta, ground, renderStep: RENDER_STEP });
+    this.timeline.end = this.runLengthSec();
+    this.waterMask = Uint8Array.from(ground, (g) => (g < 0 ? 1 : 0));
+    this.sim.onKeyframe = (k) => {
+      if (this.timeline.frames.length && k.t < this.timeline.computedTo - 1e-6) this.tileCtl?.clearRun();
+      this.timeline.add(k);
+    };
+    this.pin = null;
+    if (this.tileCtl) {
+      await this.tileCtl.select('');
+      await this.tileCtl.refreshList('');
+    }
     await this.loadSurvey(regionName, meta, ground);
     await this.loadInund2011(regionName);
     await this.loadInund5(regionName);
@@ -538,6 +563,7 @@ class App {
       waveProfile: this.activeWaveProfile,
     };
     $('batch-minutes').value = sc.durationMin || 30;
+    if (this.timeline) this.timeline.end = this.runLengthSec();
     this.setSourceWidth(this.sourceWidthM);
     // a preset fitted with a multiplier brings it; otherwise the user's multiplier is kept
     if (sc.csvScale != null) this.csvScale = sc.csvScale;
@@ -858,7 +884,10 @@ class App {
 
     $('select-seawall').addEventListener('change', () => this.changeEra());
 
-    $('batch-minutes').addEventListener('input', () => this.drawWavePreview());
+    $('batch-minutes').addEventListener('input', () => {
+      this.drawWavePreview();
+      if (this.timeline) this.timeline.end = this.runLengthSec();
+    });
     $('btn-batch-add').addEventListener('click', () => {
       if (!this.selectedPoint) {
         alert(getLang() === 'en' ? 'Click a point on the map first.' : '先に地図をクリックして地点を選んでください。');
@@ -1043,11 +1072,11 @@ class App {
     });
 
     // Collapsible panels (state remembered per browser)
-    this.bindCollapse('btn-toggle-sidebar', 'control-sidebar', 'miyako_tsunami_sidebar', ['◀', '▶']);
+    this.bindCollapse('btn-toggle-sidebar', 'control-sidebar', 'miyako_tsunami_sidebar', ['◀', '▶'], IS_MOBILE);
     this.bindCollapse('btn-toggle-chart', 'bottom-hud', 'miyako_tsunami_chart', ['▾', '▸']);
   }
 
-  bindCollapse(btnId, panelId, storageKey, [openIcon, closedIcon]) {
+  bindCollapse(btnId, panelId, storageKey, [openIcon, closedIcon], collapsedByDefault = false) {
     const btn = $(btnId);
     const panel = $(panelId);
     const apply = (collapsed) => {
@@ -1057,11 +1086,11 @@ class App {
       btn.title = t(collapsed ? 'expand' : 'collapse');
       if (!collapsed && this.onResize) this.onResize(); // chart canvas was 0×0 while hidden
     };
-    let saved = false;
+    let saved = null;
     try {
-      saved = localStorage.getItem(storageKey) === '1';
+      saved = localStorage.getItem(storageKey);
     } catch {}
-    apply(saved);
+    apply(saved != null ? saved === '1' : collapsedByDefault);
     btn.addEventListener('click', () => {
       const collapsed = !panel.classList.contains('collapsed');
       apply(collapsed);
@@ -1234,14 +1263,158 @@ class App {
       return;
     }
 
+    this.selectPoint(worldX, worldZ);
+  }
+
+  /**
+   * Observation pin at region-local (worldX, worldZ) (m east of the west edge, south of the north edge), from a map
+   * click or the address search; title names it for the detail tile.
+   */
+  selectPoint(worldX, worldZ, title) {
+    const { nx, ny, res, originE, originN } = this.regionMeta;
+    const gx = Math.min(nx - 1, Math.max(0, Math.floor(worldX / res)));
+    const gz = Math.min(ny - 1, Math.max(0, Math.floor(worldZ / res)));
+    const elevation = this.groundF32[gz * nx + gx];
+    const x = worldX - (nx * res) / 2, z = worldZ - (ny * res) / 2;
     this.selectedPoint = { worldX, worldZ };
     this.pointElevation = elevation;
     this.pointLog = [];
     this.sim.setPoint(this.selectedPoint);
-    this.scene.setPin(p.x, p.z, elevation);
-    this.scene.setBuildingFocus({ x: p.x, z: p.z });
+    this.scene.setPin(x, z, elevation);
+    this.scene.setBuildingFocus({ x, z });
     this.depthChart.setPoint({ elevation, waterDepth: 0, maxDepth: 0 });
     this.updatePointInspectionUI({ elevation, waterDepth: 0, maxDepth: 0 });
+    const [lon, lat] = toLonLat(originE + worldX, originN - worldZ);
+    this.pin = { x: worldX, z: worldZ, title: title || `${lat.toFixed(4)}N ${lon.toFixed(4)}E` };
+  }
+
+  /** Length of the run (s): the batch length field; the detail tile follows the run up to it. */
+  runLengthSec() {
+    return Math.max(60, (Number($('batch-minutes').value) || 30) * 60);
+  }
+
+  /** The 2 m detail tile panel (src/tile/), made once; its context follows the current region and era. */
+  setupTile() {
+    if (IS_MOBILE) {
+      // phones: 1 km tiles only
+      const sel = $('select-tile-size');
+      for (const o of [...sel.options]) if (o.value !== '1000') o.remove();
+      sel.value = '1000';
+    }
+    const app = this;
+    this.tileCtl = new TileController({
+      scene: this.scene,
+      get meta() { return app.regionMeta; },
+      get ground() { return app.groundF32; },
+      get waterMask() { return app.waterMask; },
+      get seawallMgr() { return app.seawallMgr; },
+      timeline: () => app.timeline,
+      lang: () => getLang(),
+      pin: () => app.pin,
+      startCompute: () => { if (!app.isSimulating) app.setSimulating(true); },
+      onUpdate: () => {},
+      era: () => $('select-seawall').value,
+      tide: () => app.tideLevel,
+    });
+  }
+
+  /** Address / place search: candidates inside the region drop the observation pin. */
+  bindAddressSearch() {
+    $('form-address').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const q = $('input-address').value.trim();
+      const box = $('address-results');
+      box.innerHTML = '';
+      if (!q || !this.regionMeta) return;
+      const msg = (text) => { const p = document.createElement('div'); p.className = 'address-msg'; p.textContent = text; box.append(p); };
+      this.allLabels ||= await fetch('data/labels.json').then((r) => r.json()).catch(() => []);
+      const landmarks = this.allLabels.filter((l) => !l.region || l.region === this.currentRegion);
+      let hits;
+      try {
+        hits = await searchPlaces(q, this.regionMeta, landmarks);
+      } catch {
+        msg(t('addressError'));
+        return;
+      }
+      const en = getLang() === 'en';
+      for (const h of hits.inside) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.textContent = en ? h.title_en : h.title;
+        b.addEventListener('click', () => {
+          this.selectPoint(h.worldX, h.worldZ, h.title);
+          if (this.scene.pinMesh) this.scene.flyTo(this.scene.pinMesh.position.clone(), 1500);
+        });
+        box.append(b);
+      }
+      if (hits.outside.length) {
+        msg(t('addressOutside'));
+        for (const h of hits.outside) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'outside';
+          b.disabled = true;
+          b.textContent = h.title;
+          box.append(b);
+        }
+      }
+      if (!hits.inside.length && !hits.outside.length) msg(t('addressNone'));
+    });
+  }
+
+  /**
+   * Every panel can be folded with a button on its title: the sidebar sections, the stats panel and its blocks.
+   * On phones they start folded (except the region, scenario and run sections) so the map stays visible.
+   * The choice is remembered per panel.
+   */
+  bindFolding() {
+    const make = (box, title, key, foldedByDefault) => {
+      if (!box || !title) return;
+      box.classList.add('foldable');
+      title.classList.add('fold-head');
+      // a title translated as a whole (data-i18n on it) would wipe the button: move the text into a span
+      if (title.dataset.i18n) {
+        const span = document.createElement('span');
+        span.dataset.i18n = title.dataset.i18n;
+        span.textContent = title.textContent;
+        delete title.dataset.i18n;
+        title.textContent = '';
+        title.append(span);
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'fold-btn';
+      title.append(btn);
+      const apply = (folded) => {
+        box.classList.toggle('folded', folded);
+        btn.textContent = folded ? '▸' : '▾';
+        btn.title = t(folded ? 'unfold' : 'fold');
+        btn.setAttribute('aria-expanded', String(!folded));
+      };
+      let saved = null;
+      try { saved = localStorage.getItem(key); } catch {}
+      apply(saved != null ? saved === '1' : foldedByDefault);
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const folded = !box.classList.contains('folded');
+        apply(folded);
+        try { localStorage.setItem(key, folded ? '1' : '0'); } catch {}
+        if (!folded && this.onResize) this.onResize();
+      });
+    };
+    const keep = new Set(['select-region', 'select-scenario', 'btn-play']); // stay open on phones
+    document.querySelectorAll('#control-sidebar .panel-section').forEach((sec, k) => {
+      const title = sec.querySelector(':scope > .section-title');
+      const open = [...keep].some((id) => sec.querySelector('#' + id));
+      make(sec, title, `miyako_tsunami_fold_s${k}`, IS_MOBILE && !open);
+    });
+    const hud = document.querySelector('.stats-hud');
+    make(hud, hud?.querySelector(':scope > .section-title'), 'miyako_tsunami_fold_stats', IS_MOBILE);
+    hud?.querySelectorAll(':scope > div').forEach((blk, k) => {
+      const title = blk.querySelector(':scope > .section-title');
+      if (title) make(blk, title, `miyako_tsunami_fold_stats${k}`, false);
+    });
   }
 
   updatePointInspectionUI(info) {
@@ -1347,6 +1520,11 @@ class App {
     document.querySelectorAll('[data-i18n]').forEach((el) => {
       el.textContent = t(el.dataset.i18n);
     });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+      el.placeholder = t(el.dataset.i18nPlaceholder);
+    });
+    this.tileCtl?.updateTexts();
+    document.querySelectorAll('.fold-btn').forEach((b) => (b.title = t(b.closest('.foldable')?.classList.contains('folded') ? 'unfold' : 'fold')));
     const isMiyako = this.currentRegion === 'miyako_port';
     const en = getLang() === 'en';
     const offEl = document.querySelector('[data-i18n="offshoreHeight"]');

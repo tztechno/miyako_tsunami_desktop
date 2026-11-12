@@ -112,8 +112,44 @@
           <p class="hint" data-i18n="eraHint">地形と防潮堤をセットで切り替えます。田老: 当時は旧防潮堤 X字 10m、現在は第一 10m＋新田老 14.7m。宮古港: 当時は閉伊川の堤防 4m、現在は堤防 6m＋河口の水門。切り替えると計算は最初からになります。</p>
         </section>
 
+        <!-- Address search: drops the observation pin -->
+        <section class="panel-section">
+          <div class="section-title">
+            <span>📍</span> <span data-i18n="addressTitle">住所・地名からピン</span>
+          </div>
+          <form id="form-address" class="address-row">
+            <input type="text" id="input-address" data-i18n-placeholder="addressPlaceholder" placeholder="例: 田老 / 宮古市磯鶏" />
+            <button type="submit" id="btn-address-search" class="btn" data-i18n="addressSearch">検索</button>
+          </form>
+          <div id="address-results" class="address-results"></div>
+          <p class="hint" data-i18n="addressHint">地図のラベル名と国土地理院の住所検索（ネット接続が必要）から探し、選んだ場所にピンを置きます。いま選んでいる地区の範囲内の候補だけにピンを置けます。</p>
+        </section>
+
+        <!-- 2 m detail tile (src/tile/, from osaka_tsunami) -->
+        <section class="panel-section">
+          <div class="section-title">
+            <span>🔍</span> <span id="txt-sec-tile">詳細タイル（2m・全建物）</span>
+          </div>
+          <div class="tile-row">
+            <select id="select-tile-size">
+              <option value="1000">1 km</option>
+              <option value="2000" selected>2 km</option>
+              <option value="3000">3 km</option>
+            </select>
+            <button id="btn-tile-build" class="btn">ピン位置で作成</button>
+          </div>
+          <div class="tile-row">
+            <select id="select-tile"></select>
+            <button id="btn-tile-delete" class="btn">削除</button>
+          </div>
+          <button id="btn-tile-run" class="btn btn-primary">▶ 詳細計算 (GPU)</button>
+          <div id="tile-status" class="tile-status"></div>
+          <p id="txt-tile-hint" class="hint"></p>
+        </section>
+
         <!-- 4. Wave Parameters & Artificial Wave Trigger -->
         <section class="panel-section">
+          <div class="section-title"><span>🌊</span> <span data-i18n="waveTitle">津波の条件</span></div>
           <div class="slider-group">
             <div class="slider-header">
               <span data-i18n="tsunamiHeight">津波の波高 (沖合)</span>
@@ -166,6 +202,7 @@
 
         <!-- 5. Simulation Playback Buttons -->
         <section class="panel-section">
+          <div class="section-title"><span>▶</span> <span data-i18n="playTitle">計算の操作</span></div>
           <div class="button-row">
             <button id="btn-play" class="btn btn-primary" data-i18n="play">▶ 再生</button>
             <button id="btn-reset" class="btn btn-danger" data-i18n="reset">↺ リセット</button>

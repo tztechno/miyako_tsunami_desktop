@@ -948,3 +948,132 @@ input[type="range"] {
   animation: fadeInDown 0.2s ease-out;
 }
 
+
+/* Foldable panels: a ▾ / ▸ button on each title; folded, only the title row stays */
+.fold-head {
+  position: relative;
+  padding-right: 30px;
+}
+.fold-btn {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.fold-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: var(--accent-cyan);
+}
+.foldable.folded > :not(.fold-head) {
+  display: none !important;
+}
+.stats-hud.folded {
+  max-height: none;
+}
+
+/* Address search and the 2 m detail tile (as in osaka_tsunami) */
+.address-row,
+.tile-row {
+  display: flex;
+  gap: 6px;
+}
+.address-row input {
+  flex: 1;
+  min-width: 0;
+}
+.address-row button,
+.tile-row button {
+  width: auto;
+  flex: none;
+}
+.tile-row select {
+  flex: 1;
+  min-width: 0;
+}
+.address-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.address-results button {
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+  cursor: pointer;
+}
+.address-results button.outside {
+  color: var(--text-dim);
+  border-style: dashed;
+  cursor: default;
+}
+.address-results .address-msg {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.tile-status {
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+/* Phones / narrow screens: header on top, controls full width, stats above the chart, chart along the bottom */
+@media (max-width: 760px) {
+  .app-header {
+    top: 8px;
+    left: 8px;
+    right: 8px;
+    padding: 6px 10px;
+    gap: 10px;
+  }
+  .app-header h1 {
+    font-size: 14px;
+  }
+  #app-subtitle,
+  .brand-icon {
+    display: none;
+  }
+  .control-sidebar {
+    top: 56px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    bottom: auto;
+    max-height: calc(100% - 56px - 300px);
+    padding: 12px;
+    gap: 12px;
+  }
+  .control-sidebar.collapsed {
+    right: auto;
+  }
+  .stats-hud {
+    top: auto;
+    bottom: 176px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-height: 30vh;
+    padding: 10px 12px;
+  }
+  .bottom-hud {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    height: 160px;
+  }
+}

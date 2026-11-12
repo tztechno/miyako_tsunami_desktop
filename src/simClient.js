@@ -41,6 +41,8 @@ export class SimClient {
         this.pending.get(m.reqId)?.(m);
         this.pending.delete(m.reqId);
       }
+    } else if (m.type === 'keyframe') {
+      this.onKeyframe?.(m);
     } else if (m.type === 'batchDone') {
       this.pending.get(m.reqId)?.(m);
       this.pending.delete(m.reqId);

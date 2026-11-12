@@ -20,6 +20,27 @@ let surveyCells = null; // Int32Array of sim cell indices for the 2011 survey po
 const pool = [];
 let allocated = 0;
 
+// Keyframes for the 2 m detail tile (src/timeline.js): water level in cm on the render grid every KEY_SEC of
+// simulated time, posted as the run goes; a run that goes back in time (reset) starts them again.
+const KEY_SEC = 30;
+let nextKey = 0;
+let lastKeyT = -1;
+
+function maybeKeyframe() {
+  const t = sim.simTimeSec;
+  if (t < lastKeyT - 1e-6) nextKey = 0;
+  if (t < nextKey - 1e-6) return;
+  const { nx, ny } = sim;
+  const eta = new Int16Array(wnx * wny);
+  for (let j = 0; j < wny; j++) {
+    const row = Math.min(ny - 1, j * step) * nx;
+    for (let i = 0; i < wnx; i++) eta[j * wnx + i] = Math.round(Math.max(-327, Math.min(327, sim.eta[row + Math.min(nx - 1, i * step)])) * 100);
+  }
+  self.postMessage({ type: 'keyframe', t, eta }, [eta.buffer]);
+  lastKeyT = t;
+  nextKey = (Math.floor(t / KEY_SEC + 1e-9) + 1) * KEY_SEC;
+}
+
 function allocFrame() {
   const n = wnx * wny;
   return {
@@ -91,6 +112,7 @@ function fillFrame(f) {
 }
 
 function post(reqId, force = false) {
+  maybeKeyframe();
   const f = takeFrame(force);
   if (!f) return false;
   fillFrame(f);
