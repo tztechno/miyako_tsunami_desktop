@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { toPlane } from './proj.js';
 import { sourceZoneCenter, entryPath } from './tsunamiSim.js';
 
+const HAZE = '#9fb2c6'; // sky / distant haze
 const PIN_SCREEN_SCALE = 0.006; // pin height ≈ 18px regardless of zoom
 
 // Water palette (sRGB → linear handled by THREE.Color)
@@ -47,8 +48,10 @@ export class TsunamiScene {
     this.canvas = canvas;
     this.seaLevel = 0; // still-water (tide) level; the sea is coloured by the anomaly above it
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#0d1b2a');
-    this.scene.fog = new THREE.FogExp2('#0d1b2a', 0.00012);
+    // Light haze, as in nagoya_flood: the fog starts beyond the area the camera looks at and recedes as the camera
+    // pulls back (updateFog), so a zoomed-out view no longer sinks into a dark fog.
+    this.scene.background = new THREE.Color(HAZE);
+    this.scene.fog = new THREE.Fog(HAZE, 6000, 40000);
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -175,7 +178,7 @@ export class TsunamiScene {
     c.zoomToCursor = true;
     c.minDistance = 3;
     c.maxDistance = 40000;
-    c.maxPolarAngle = Math.PI * 0.497;
+    c.maxPolarAngle = Math.PI * 0.92; // free view as in nagoya_flood: from overhead to looking up from the ground
     c.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
     this.controls = c;
     this.target = c.target;
@@ -225,57 +228,59 @@ export class TsunamiScene {
     this.camera.lookAt(target);
   }
 
+  /**
+   * Camera presets. Each looks at a place of the region (lon/lat, so it follows changes of the grid) from a bearing
+   * (deg the camera stands in, seen from the target: 0 = north, 90 = east), a horizontal distance and a height (m).
+   */
   setCameraView(type) {
-    const W = this.terrain?.W || 4000;
-    const isMiyako = this.terrain?.name === 'miyako_port';
-    // Town/port center: near originE + 2900m for Miyako, originE + 2000m for Taro
-    const townX = -W / 2 + (isMiyako ? 2900 : 2000);
-    const townZ = this.townZ();
-    const t = new THREE.Vector3(townX, 10, townZ);
-    let p = new THREE.Vector3(townX + 1500, 1500, townZ + 2200);
-
-    if (type === 'viewBird') {
-      // Whole area bird-eye view from above the bay (shows coastal town and offshore wave source)
-      p.set(500, Math.max(3400, W * 0.46), Math.max(3000, W * 0.40));
-      t.set(500, 0, 0);
-    } else if (type === 'viewCoast') {
-      // Near-offshore looking west at the town and historic seawall
-      p.set(townX + 1600, 320, townZ + 650);
-      t.set(townX + 100, 10, townZ - 50);
-    } else if (type === 'viewTown') {
-      // Close-up on the town and seawall
-      p.set(townX - 450, 220, townZ + 420);
-      t.set(townX + 150, 20, townZ - 50);
-    } else if (type === 'viewOffshore') {
-      // Behind offshore wave source zone (X ~ W/2) looking west toward the coast
-      p.set(W / 2 + 350, 1100, townZ + 1200);
-      t.set(townX + 500, 30, townZ);
+    const T = this.terrain;
+    if (!T) return;
+    const isMiyako = T.name === 'miyako_port';
+    const PRESETS = isMiyako
+      ? {
+          viewCoast: { at: [141.9640, 39.6391], from: 60, dist: 1100, height: 420 }, // Hei River mouth and its gate, from the bay
+          viewTown: { at: [141.9550, 39.6402], from: 125, dist: 900, height: 330 }, // city centre between the station and the mouth
+          viewOffshore: { at: [141.9620, 39.6450], from: 25, dist: 3000, height: 850 }, // Kuwagasaki seen from the bay mouth
+        }
+      : {
+          viewCoast: { at: [141.97207, 39.73524], from: 125, dist: 900, height: 360 }, // the X of the old walls, from the bay
+          viewTown: { at: [141.9686, 39.7368], from: 165, dist: 650, height: 240 }, // Taro station and the town behind the wall
+          viewOffshore: { at: [141.9752, 39.7342], from: 95, dist: 3600, height: 950 }, // the river mouth from off the east edge
+        };
+    const t = new THREE.Vector3(), p = new THREE.Vector3();
+    const look = ({ at, from, dist, height }) => {
+      const [e, n] = toPlane(at[0], at[1]);
+      const x = e - T.originE - T.W / 2, z = T.originN - n - T.H / 2;
+      const r = (from * Math.PI) / 180;
+      t.set(x, Math.max(0, this.surfaceAt(x, z)), z);
+      p.set(x + Math.sin(r) * dist, t.y + height, z - Math.cos(r) * dist);
+    };
+    if (PRESETS[type]) {
+      look(PRESETS[type]);
+    } else if (type === 'viewBird') {
+      // the whole region from above its south edge
+      const span = Math.max(T.W, T.H);
+      t.set(0, 0, 0);
+      p.set(0, span * 0.85, T.H / 2 + span * 0.45);
     } else if (type === 'viewSource') {
-      if (this.csvSourceXZ) {
-        // Wave CSV point (often ~20 km offshore): look out to it from behind the region, region in the foreground
-        const { x, z } = this.csvSourceXZ;
-        const d = Math.hypot(x, z) || 1;
-        t.set(x * 0.45, 0, z * 0.45);
-        p.set((-x / d) * 3500, 3000, (-z / d) * 3500);
-      } else if (isMiyako) {
-        // Miyako Bay northern entrance (deep sea entrance off Omoe peninsula)
-        p.set(2150, 520, -2300);
-        t.set(1450, 15, -1750);
-      } else {
-        const srcX = W / 2 - 250;
-        p.set(srcX + 750, 480, townZ + 600);
-        t.set(srcX, 15, townZ);
-      }
+      // the wave source (the CSV point, or the region's source zone) from beyond it, looking back at the region
+      const src = this.csvSourceXZ || sourceZoneCenter({ name: T.name, nx: T.nx, ny: T.ny, res: T.res });
+      const d = Math.hypot(src.x, src.z) || 1;
+      const ux = src.x / d, uz = src.z / d;
+      t.set(src.x - ux * 1500, 0, src.z - uz * 1500);
+      p.set(src.x + ux * 2500, 1500, src.z + uz * 2500);
     } else if (type === 'viewBackdrop') {
       p.set(2500, 6000, 7000);
       t.set(0, 0, 0);
+    } else {
+      return;
     }
     this.animateCameraTo(p, t);
   }
 
   /**
-   * Scene z of the town (Taro: the seawall, plane N ≈ -28600 m; Miyako Port: the region centre), so the
-   * camera presets follow it when the region's north-south extent changes.
+   * Scene z of the town (Taro: the seawall, plane N ≈ -28600 m; Miyako Port: the region centre), for the
+   * offshore buoy marker.
    */
   townZ() {
     const t = this.terrain;
@@ -550,7 +555,7 @@ export class TsunamiScene {
     }
     geom.computeVertexNormals();
 
-    this.terrain = { name: meta.name, nx, ny, res, W: nx * res, H: ny * res, originN: meta.originN, ground: groundF32 };
+    this.terrain = { name: meta.name, nx, ny, res, W: nx * res, H: ny * res, originE: meta.originE, originN: meta.originN, ground: groundF32 };
     const mat = new THREE.MeshStandardMaterial({ map: await this.loadTexture(aerialUrl), roughness: 0.85, metalness: 0.05 });
     this.groundMesh = new THREE.Mesh(geom, mat);
     this.groundMesh.receiveShadow = true;
@@ -984,8 +989,16 @@ export class TsunamiScene {
     this.renderFrame();
   }
 
+  /** Keep the haze beyond the area in view: it starts past the orbit centre and thins as the camera pulls back. */
+  updateFog() {
+    const d = this.camera.position.distanceTo(this.target);
+    this.scene.fog.near = d * 2 + 4000;
+    this.scene.fog.far = d * 6 + 30000;
+  }
+
   /** Draw with the camera as-is (used by the recorder, which sets the camera itself). */
   renderFrame() {
+    this.updateFog();
     if (this.pinMesh?.visible) {
       const s = this.camera.position.distanceTo(this.pinMesh.position) * PIN_SCREEN_SCALE;
       this.pinMesh.scale.setScalar(Math.max(0.3, s));
