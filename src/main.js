@@ -14,6 +14,7 @@ import { seaDepthAt } from './bathyLookup.js';
 import { Timeline } from './timeline.js';
 import { searchPlaces } from './geocode.js';
 import { TileController } from './tile/tileController.js';
+import { parseFaultCsv } from './nankai/data/faultCsv';
 
 const RENDER_STEP = 2; // water mesh = every 2nd sim cell (10 m)
 const $ = (id) => document.getElementById(id);
@@ -83,6 +84,7 @@ class App {
     this.bindUI();
     this.bindFolding();
     this.bindAddressSearch();
+    this.bindFaultSource();
     this.setupTile();
     this.setupResize();
     this.setupPicking();
@@ -514,6 +516,11 @@ class App {
 
     // Load CSV wave profile if this scenario is driven by a CSV file
     if (sc.isCsvWave) {
+      // a source computed from a fault CSV carries its own waveform per region
+      if (sc.csvTextByRegion?.[this.currentRegion] && sc.waveProfileRegion !== this.currentRegion) {
+        sc.waveProfile = WaveProfile.parse(sc.csvTextByRegion[this.currentRegion], 'fault.csv');
+        sc.waveProfileRegion = this.currentRegion;
+      }
       // csvUrl may hold {region}: presets sampled along each region's own edges
       const url = sc.csvUrl?.replace('{region}', this.currentRegion);
       if (url && sc.waveProfileUrl !== url) {
@@ -543,10 +550,14 @@ class App {
     }
 
     // Waveforms at stations along this region's edges (tools/build-wave-sources.mjs), fed in where they were sampled
-    this.activeEdgeWaves = sc.edgesId ? await this.loadEdgeWaves(`${sc.edgesId}_${this.currentRegion}`) : null;
+    this.activeEdgeWaves = sc.edgesByRegion
+      ? sc.edgesByRegion[this.currentRegion] || null
+      : sc.edgesId ? await this.loadEdgeWaves(`${sc.edgesId}_${this.currentRegion}`) : null;
+    const uplift = sc.upliftByRegion?.[this.currentRegion] || null;
 
     this.currentScenarioId = sc.id;
-    this.sim.setScenario({ ...sc, directionDeg: deg, waveProfile: this.activeWaveProfile, edgeWaves: this.activeEdgeWaves });
+    const { edgesByRegion, upliftByRegion, csvTextByRegion, ...plain } = sc; // only this region's data goes to the worker
+    this.sim.setScenario({ ...plain, directionDeg: deg, waveProfile: this.activeWaveProfile, edgeWaves: this.activeEdgeWaves, uplift });
     this.updateScenarioDesc(sc);
     $('input-wave-height').value = sc.waveHeight;
     $('val-wave-height').textContent = `${sc.waveHeight.toFixed(1)}m`;
@@ -1316,6 +1327,104 @@ class App {
       era: () => $('select-seawall').value,
       tide: () => app.tideLevel,
     });
+  }
+
+  /**
+   * Tsunami source from a fault CSV: nankai_trough's solver runs in a worker (src/faultWorker.js) and the waveforms
+   * along both regions' edges, the uplift inside them and a representative CSV become the scenario "fault_custom".
+   */
+  bindFaultSource() {
+    const status = (text) => ($('fault-status').textContent = text);
+    const L = (ja, en) => (getLang() === 'en' ? en : ja);
+    let parsed = null, worker = null;
+    $('input-fault-csv').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file) return;
+      $('fault-file').textContent = file.name;
+      this.nankaiMeta ||= await fetch('data/nankai/bathymetry_meta.json').then((r) => r.json());
+      const res = parseFaultCsv(await file.text(), this.nankaiMeta.bounds, getLang() === 'en' ? 'en' : 'ja');
+      if (res.errors?.length || !res.faults?.length) {
+        parsed = null;
+        $('btn-fault-run').disabled = true;
+        status((res.errors || []).slice(0, 5).join('\n') || L('断層が読み取れませんでした。', 'No faults were read.'));
+        return;
+      }
+      parsed = { ...res, fileName: file.name };
+      $('btn-fault-run').disabled = false;
+      const mw = res.momentMagnitude > 0 ? ` (Mw ${res.momentMagnitude.toFixed(1)})` : '';
+      status(L(`断層 ${res.faults.length} 枚${mw}${res.rupture ? '・破壊伝播あり' : ''}。「波源を計算」を押してください。`,
+        `${res.faults.length} fault(s)${mw}${res.rupture ? ', with rupture propagation' : ''}. Press "Compute the source".`));
+    });
+    $('btn-fault-run').addEventListener('click', async () => {
+      if (worker) { worker.postMessage({ type: 'cancel' }); return; }
+      if (!parsed) return;
+      const durationSec = Math.min(480, Math.max(10, Number($('input-fault-minutes').value) || 120)) * 60;
+      const regions = await Promise.all(['taro', 'miyako_port'].map((r) => fetch(`data/regions/${r}/meta.json`).then((x) => x.json())));
+      const abs = (p) => new URL(p, window.location.href).href;
+      worker = new Worker(new URL('./faultWorker.js', import.meta.url), { type: 'module' });
+      $('btn-fault-run').textContent = t('faultCancel');
+      const t0 = performance.now();
+      status(L('計算の準備中…', 'Preparing…'));
+      const done = () => { worker.terminate(); worker = null; $('btn-fault-run').textContent = t('faultRun'); };
+      worker.onmessage = (ev) => {
+        const m = ev.data;
+        if (m.type === 'progress') {
+          const pct = Math.round((m.t / m.durationSec) * 100);
+          status(L(`計算中 ${pct}%（地震後 ${(m.t / 60).toFixed(0)} / ${(m.durationSec / 60).toFixed(0)} 分、${((performance.now() - t0) / 1000).toFixed(0)} 秒経過）`,
+            `Computing ${pct}% (${(m.t / 60).toFixed(0)} / ${(m.durationSec / 60).toFixed(0)} min after the quake, ${((performance.now() - t0) / 1000).toFixed(0)} s)`));
+        } else if (m.type === 'cancelled') {
+          done();
+          status(L('中止しました。', 'Cancelled.'));
+        } else if (m.type === 'error') {
+          done();
+          status(L(`計算に失敗しました: ${m.message}`, `The computation failed: ${m.message}`));
+        } else if (m.type === 'done') {
+          done();
+          this.useFaultSource(parsed, m.results, durationSec, (performance.now() - t0) / 1000);
+        }
+      };
+      worker.postMessage({
+        type: 'run', faults: parsed.faults, rupture: parsed.rupture || null, durationSec, regions,
+        urls: { bathy: abs('data/nankai/bathymetry.bin'), bathyMeta: abs('data/nankai/bathymetry_meta.json'), nest: abs('data/nankai/nest_miyako.bin'), nestMeta: abs('data/nankai/nest_miyako_meta.json') },
+      });
+    });
+  }
+
+  /** Make the fault-CSV source the scenario "fault_custom" and run it in the current region. */
+  async useFaultSource(parsed, results, durationSec, wallSec) {
+    const r = (k) => results[k];
+    const describe = (en) => ['taro', 'miyako_port'].filter(r).map((k) => {
+      const x = r(k);
+      const name = en ? (k === 'taro' ? 'Taro' : 'Miyako Port') : (k === 'taro' ? '田老' : '宮古港');
+      return en
+        ? `${name}: ${x.stations} edge stations, max ${x.edgeMax[0].toFixed(2)}-${x.edgeMax[1].toFixed(2)} m; uplift in the region ${x.uplift.min.toFixed(2)} to ${x.uplift.max.toFixed(2)} m`
+        : `${name}: 縁の観測点 ${x.stations} 点・最大 ${x.edgeMax[0].toFixed(2)}〜${x.edgeMax[1].toFixed(2)}m、計算域の中の海面の上下 ${x.uplift.min.toFixed(2)}〜${x.uplift.max.toFixed(2)}m`;
+    }).join(en ? '; ' : '、');
+    const sc = {
+      id: 'fault_custom',
+      name: `断層CSV: ${parsed.fileName}`,
+      name_en: `Fault CSV: ${parsed.fileName}`,
+      isCsvWave: true,
+      csvTextByRegion: Object.fromEntries(Object.entries(results).map(([k, v]) => [k, v.csv])),
+      edgesByRegion: Object.fromEntries(Object.entries(results).map(([k, v]) => [k, v.edges])),
+      upliftByRegion: Object.fromEntries(Object.entries(results).map(([k, v]) => [k, v.uplift])),
+      csvScale: 1,
+      waveHeight: 1,
+      periodSec: 1200,
+      directionDeg: 90,
+      durationMin: Math.round(durationSec / 60),
+      hasPreDrawdown: false,
+      eqTimeOffsetSec: 0,
+      description: `断層CSV「${parsed.fileName}」（${parsed.faults.length} 枚）から、アプリの中で nankai_trough の計算をして作った波源（地震後 ${Math.round(durationSec / 60)} 分まで、計算 ${wallSec.toFixed(0)} 秒）。${describe(false)}。倍率は1.0。`,
+      description_en: `Source computed in the app with nankai_trough's solver from the fault CSV "${parsed.fileName}" (${parsed.faults.length} fault(s); ${Math.round(durationSec / 60)} min after the quake, computed in ${wallSec.toFixed(0)} s). ${describe(true)}. Multiplier 1.0.`,
+    };
+    TSUNAMI_SCENARIOS.fault_custom = sc;
+    const sel = $('select-scenario');
+    sel.querySelector('option[value="fault_custom"]').style.display = '';
+    sel.value = 'fault_custom';
+    await this.applyScenario(sc);
+    $('fault-status').textContent = getLang() === 'en' ? `Done in ${wallSec.toFixed(0)} s: the scenario is set to this source.` : `計算が終わりました（${wallSec.toFixed(0)} 秒）。シナリオをこの波源にしました。`;
   }
 
   /** Address / place search: candidates inside the region drop the observation pin. */

@@ -60,6 +60,7 @@
             <option value="chile_1960" data-i18n="scenarios.chile_1960">チリ地震津波 (1960年再現 - 5.5m)</option>
             <option value="custom" data-i18n="scenarios.custom">カスタム津波パラメータ (人工波)</option>
             <option value="csv_custom" style="display: none;" data-i18n="scenarios.csv_custom">インポート波源CSV (ユーザー読込)</option>
+            <option value="fault_custom" style="display: none;" data-i18n="scenarios.fault_custom">断層CSVから作った波源</option>
           </select>
           <p id="scenario-desc" style="font-size: 11px; color: var(--text-dim); line-height: 1.4; margin-top: 6px;"></p>
 
@@ -97,6 +98,26 @@
                 <span>×</span>
               </label>
             </div>
+          </div>
+
+          <!-- Tsunami source from a fault CSV (src/faultWorker.js) -->
+          <div class="fault-box">
+            <div class="fault-head"><span>🪨</span> <strong data-i18n="faultTitle">断層CSVから波源を作る</strong></div>
+            <div class="tile-row">
+              <label for="input-fault-csv" class="btn btn-sm btn-secondary" style="cursor: pointer; margin: 0;">
+                <span data-i18n="faultPick">📁 断層CSVを選択</span>
+                <input id="input-fault-csv" type="file" accept=".csv,text/csv" style="display: none;" />
+              </label>
+              <span id="fault-file" class="fault-file"></span>
+            </div>
+            <div class="tile-row">
+              <label class="fault-len"><span data-i18n="faultMinutes">計算する長さ (分)</span>
+                <input id="input-fault-minutes" type="number" min="10" max="480" step="10" value="120" />
+              </label>
+              <button id="btn-fault-run" class="btn btn-primary" disabled data-i18n="faultRun">▶ 波源を計算</button>
+            </div>
+            <div id="fault-status" class="tile-status"></div>
+            <p class="hint" data-i18n="faultHint">nankai_trough と同じ書式の断層CSV（1行1枚の矩形断層: lon, lat, top_depth_km, length_km, width_km, strike_deg, dip_deg, rake_deg, slip_m）から、アプリの中で日本周辺（2.5km格子）と宮古・田老沖（15秒・約400m格子）の津波を計算し、両地区の計算域の縁に沿って1kmごとに取り出した波形を縁から入力します（静岡市版と同じ方式）。地震による海面の上下は計算域の中にも与えます（陸地は動かしません）。計算には数分かかります。</p>
           </div>
         </section>
 

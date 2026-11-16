@@ -359,8 +359,30 @@ export class TsunamiSimulator {
     this.hasPreDrawdown = !!scenario.hasPreDrawdown;
     this.edgeWaves = scenario.edgeWaves || null;
     this.edgeNow = this.edgeWaves ? new Float32Array(this.edgeWaves.p.length) : null;
+    this.setUplift(scenario.uplift || null);
     this.setupBoundary();
     this.reset();
+  }
+
+  /**
+   * Sea-surface uplift of the earthquake inside the region (src/faultWorker.js), null for none: when the source lies
+   * under or next to the region, the water rises or falls in place from onsetSec over riseSec (as in N81
+   * shizuoka_tsunami). Bilinear from the coarse grid onto the sea cells; the land is kept fixed.
+   * u: { nx, ny, stepM, data, onsetSec, riseSec } (grid values every stepM m from the NW corner)
+   */
+  setUplift(u) {
+    this.uplift = null;
+    if (!u) return;
+    const { nx, res, N } = this;
+    const a = new Float32Array(N);
+    for (let k = 0; k < N; k++) {
+      if (this.ground[k] >= 0) continue;
+      const fx = (((k % nx) + 0.5) * res) / u.stepM, fy = ((Math.floor(k / nx) + 0.5) * res) / u.stepM;
+      const i = Math.min(u.nx - 2, Math.floor(fx)), j = Math.min(u.ny - 2, Math.floor(fy)), tx = fx - i, ty = fy - j;
+      const o = j * u.nx + i;
+      a[k] = (u.data[o] * (1 - tx) + u.data[o + 1] * tx) * (1 - ty) + (u.data[o + u.nx] * (1 - tx) + u.data[o + u.nx + 1] * tx) * ty;
+    }
+    this.uplift = { cells: a, onsetSec: u.onsetSec, riseSec: u.riseSec };
   }
 
   /** Level at every edge station at time t (s after the earthquake) × the CSV multiplier. */
@@ -531,6 +553,21 @@ export class TsunamiSimulator {
     const barrierActive = this.seawalls.barrierActive;
 
     let overtoppingCount = 0;
+
+    // 0. The earthquake lifts (or lowers) the sea in place while the rupture passes; same multiplier as the edge waves
+    if (this.uplift) {
+      const { cells, onsetSec, riseSec } = this.uplift;
+      const ramp = (t) => Math.max(0, Math.min(1, (t - onsetSec) / riseSec));
+      const f = ramp(this.simTimeSec + dt) - ramp(this.simTimeSec);
+      if (f > 0) {
+        const scale = this.profileScale ?? 1;
+        for (let k = 0; k < this.N; k++) {
+          if (cells[k] === 0) continue;
+          this.eta[k] += cells[k] * f * scale;
+          this.depth[k] = Math.max(0, this.eta[k] - this.ground[k]);
+        }
+      }
+    }
 
     // 1. Boundary Condition: plane wave entering through the open-sea edges.
     // Each boundary cell sees the offshore signal delayed by the travel time of an

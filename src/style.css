@@ -1077,3 +1077,37 @@ input[type="range"] {
     height: 160px;
   }
 }
+
+/* Tsunami source from a fault CSV */
+.fault-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+}
+.fault-head {
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.fault-file {
+  font-size: 11px;
+  color: var(--text-dim);
+  align-self: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fault-len {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  flex: 1;
+}
+.fault-len input {
+  width: 70px;
+}

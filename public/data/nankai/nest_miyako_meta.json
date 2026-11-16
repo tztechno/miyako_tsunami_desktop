@@ -1,0 +1,16 @@
+{
+  "width": 132,
+  "height": 132,
+  "factor": 1,
+  "bounds": {
+    "lonMin": 141.85,
+    "lonMax": 142.39999999999998,
+    "latMin": 39.45,
+    "latMax": 40
+  },
+  "dxDeg": 0.004166666666666664,
+  "dyDeg": 0.0041666666666666675,
+  "dxMeters": 356.8731602825846,
+  "dyMeters": 462.5000000000001,
+  "source": "japan.tif (15 arc-second topography + bathymetry)"
+}
